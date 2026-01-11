@@ -125,9 +125,16 @@ jobs:
           fi
           
           echo ""
-          echo "Fixing all .uni files in ShellPkg (permissions and line endings)..."
+          echo "Fixing all .uni files in ShellPkg (permissions, line endings, and encoding)..."
           find ShellPkg -name "*.uni" -type f -exec chmod 644 {} \; || true
-          find ShellPkg -name "*.uni" -type f -exec sed -i 's/\r$//' {} \; || true
+          # Convert to UTF-8 without BOM and fix line endings
+          for uni_file in $(find ShellPkg -name "*.uni" -type f); do
+            # Remove BOM if present, convert to UTF-8, fix line endings
+            sed -i '1s/^\xEF\xBB\xBF//' "$uni_file" || true
+            sed -i 's/\r$//' "$uni_file" || true
+            # Ensure file ends with newline
+            [ -s "$uni_file" ] && [ "$(tail -c 1 "$uni_file")" != "" ] && echo >> "$uni_file" || true
+          done
           
           echo ""
           echo "Testing file access from Python (EDK2 uses Python)..."
@@ -148,22 +155,63 @@ jobs:
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
           source edksetup.sh
           
+          # Verify file is still accessible after edksetup.sh
+          echo "=== Post-edksetup.sh file verification ==="
+          HANDLE_UNI="ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni"
+          echo "Current directory after edksetup.sh: $(pwd)"
+          echo "WORKSPACE: ${WORKSPACE:-not set}"
+          if [ -n "${WORKSPACE}" ]; then
+            echo "Checking file from WORKSPACE: ${WORKSPACE}/$HANDLE_UNI"
+            ls -la "${WORKSPACE}/$HANDLE_UNI" || echo "File not found from WORKSPACE"
+          fi
+          echo ""
+          
           # Verify file is still accessible right before build
           echo "=== Pre-build file verification ==="
           HANDLE_UNI="ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni"
+          ABS_HANDLE_UNI=$(readlink -f "$HANDLE_UNI" || realpath "$HANDLE_UNI" || echo "$(pwd)/$HANDLE_UNI")
+          echo "Current directory: $(pwd)"
+          echo "Relative path: $HANDLE_UNI"
+          echo "Absolute path: $ABS_HANDLE_UNI"
+          
           if [ -f "$HANDLE_UNI" ]; then
             echo "✓ File exists before build: $HANDLE_UNI"
             ls -la "$HANDLE_UNI"
+            file "$HANDLE_UNI" || true
             # Test opening in binary mode (like EDK2 does)
-            python3 -c "import os; f='$HANDLE_UNI'; print(f'Python can access: {os.path.exists(f)}, readable: {os.access(f, os.R_OK)}'); open(f, 'rb').close(); print('✓ File can be opened in binary mode')"
+            python3 -c "
+import os, sys
+f = '$HANDLE_UNI'
+abs_f = '$ABS_HANDLE_UNI'
+print(f'Python can access relative: {os.path.exists(f)}, readable: {os.access(f, os.R_OK)}')
+print(f'Python can access absolute: {os.path.exists(abs_f)}, readable: {os.access(abs_f, os.R_OK)}')
+try:
+    with open(f, 'rb') as file:
+        data = file.read(100)
+        print(f'✓ File can be opened in binary mode, first 100 bytes: {len(data)} bytes')
+except Exception as e:
+    print(f'✗ ERROR opening relative path: {e}')
+    try:
+        with open(abs_f, 'rb') as file:
+            data = file.read(100)
+            print(f'✓ File can be opened via absolute path')
+    except Exception as e2:
+        print(f'✗ ERROR opening absolute path: {e2}')
+        sys.exit(1)
+"
             # Ensure file is not a symlink and is a regular file
             if [ -L "$HANDLE_UNI" ]; then
               echo "WARNING: File is a symlink, resolving..."
               REAL_FILE=$(readlink -f "$HANDLE_UNI")
               echo "Real file: $REAL_FILE"
             fi
+            # Touch the file to ensure it's definitely there
+            touch "$HANDLE_UNI"
+            chmod 644 "$HANDLE_UNI"
           else
             echo "✗ File NOT found before build: $HANDLE_UNI"
+            echo "Searching for it..."
+            find . -name "UefiHandleParsingLib.uni" -type f 2>/dev/null | head -5
             exit 1
           fi
           echo ""
