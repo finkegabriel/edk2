@@ -14,11 +14,11 @@ jobs:
       image: debian:12  # Use Debian 12 (bookworm) to ensure arm64 packages exist
 
     steps:
-      # Install git first (needed for checkout with submodules)
-      - name: Install git
+      # Install git and CA certificates first (needed for checkout with submodules)
+      - name: Install git and CA certificates
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends git
+          apt-get install -y --no-install-recommends git ca-certificates
 
       # Checkout repo with submodules
       - name: Checkout source
