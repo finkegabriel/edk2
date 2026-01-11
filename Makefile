@@ -5,8 +5,7 @@ EFIINC   := /usr/include/efi
 EFIARCH  := $(EFIINC)/arm64
 EFILIB   := /usr/lib/gnu-efi/arm64
 CRT0     := $(EFILIB)/crt0-efi-aarch64.o
-LDSCRIPT := $(EFILIB)/elf_aarch64_efi.lds
-
+LDSCRIPT := /usr/lib/gnu-efi/elf_aarch64_efi.lds
 
 CFLAGS   := -I$(EFIINC) -I$(EFIARCH) \
             -fpic -fshort-wchar \
