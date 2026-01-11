@@ -12,7 +12,7 @@ CRT0     := $(EFILIB)/crt0-efi-$(ARCH).o
 LDSCRIPT := $(EFILIB)/elf_$(ARCH)_efi.lds
 
 CFLAGS   := -I$(EFIINC) -I$(EFIARCH) \
-            -fpic -fshort-wchar -mno-red-zone \
+            -fpic -fshort-wchar \
             -Wall -Wextra
 
 TARGET   := BOOTAA64.EFI
