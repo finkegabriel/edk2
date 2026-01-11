@@ -131,7 +131,7 @@ jobs:
           
           echo ""
           echo "Testing file access from Python (EDK2 uses Python)..."
-          python3 << EOF
+          cat > /tmp/test_uni_file.py << 'PYEOF'
 import os
 import sys
 
@@ -152,7 +152,8 @@ if os.path.exists(handle_uni):
 else:
     print(f"✗ File NOT found: {handle_uni}")
     sys.exit(1)
-EOF
+PYEOF
+          python3 /tmp/test_uni_file.py
 
       # Temporarily exclude problematic library from ShellPkg.dsc
       - name: Exclude UefiShellAcpiViewCommandLib from build
