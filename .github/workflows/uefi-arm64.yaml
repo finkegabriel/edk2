@@ -14,9 +14,17 @@ jobs:
       image: debian:12  # Use Debian 12 (bookworm) to ensure arm64 packages exist
 
     steps:
-      # Checkout repo
+      # Install git first (needed for checkout with submodules)
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git
+
+      # Checkout repo with submodules
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # Add ARM64 architecture and update packages
       - name: Setup ARM64 multiarch
@@ -36,15 +44,9 @@ jobs:
             python3 \
             python3-distutils \
             uuid-dev \
-            file \
-            git
+            file
           # Create python symlink for EDK2 build scripts
           ln -sf /usr/bin/python3 /usr/bin/python
-
-      # Initialize and update submodules
-      - name: Checkout submodules
-        run: |
-          git submodule update --init --recursive
 
       # Build BaseTools
       - name: Build EDK2 BaseTools
