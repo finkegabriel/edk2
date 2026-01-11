@@ -24,93 +24,54 @@ jobs:
           dpkg --add-architecture arm64
           apt-get update
 
-      # Install cross toolchain and ARM64 gnu-efi
-      - name: Install ARM64 build tools
+      # Install EDK2 build dependencies
+      - name: Install EDK2 build tools
         run: |
           apt-get install -y --no-install-recommends \
             build-essential \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
             libc6-dev:arm64 \
-            gnu-efi:arm64 \
             make \
+            python3 \
+            uuid-dev \
             file \
-            git \
-            wget \
-            bzip2
+            git
 
-      # Debug: Check what gnu-efi files are installed
-      - name: Debug gnu-efi installation
+      # Build BaseTools
+      - name: Build EDK2 BaseTools
         run: |
-          echo "=== Checking gnu-efi package files ==="
-          dpkg -L gnu-efi:arm64 2>/dev/null | grep -E "(crt0|\.o|\.lds)" || echo "No object files found in gnu-efi:arm64"
-          echo ""
-          echo "=== Searching for gnu-efi directories ==="
-          find /usr/lib* -type d -name "*gnu-efi*" 2>/dev/null || true
-          echo ""
-          echo "=== Searching for crt0 files ==="
-          find /usr -name "crt0-efi*" 2>/dev/null || echo "No crt0 files found"
-          echo ""
-          echo "=== Searching for linker scripts ==="
-          find /usr -name "*efi*.lds" 2>/dev/null || echo "No EFI linker scripts found"
-
-      # Build gnu-efi from source if needed
-      - name: Build gnu-efi for ARM64 if missing
-        run: |
-          CRT0=$(find /usr/lib* -name "crt0-efi-aarch64.o" 2>/dev/null | head -1)
-          if [ -z "$CRT0" ]; then
-            echo "CRT0 not found, building gnu-efi from source..."
-            cd /tmp
-            # Try to download gnu-efi source
-            if ! wget -q https://sourceforge.net/projects/gnu-efi/files/gnu-efi-3.0.15.tar.bz2/download -O gnu-efi.tar.bz2; then
-              if ! wget -q https://github.com/vathpela/gnu-efi/archive/refs/tags/v3.0.15.tar.gz -O gnu-efi.tar.gz; then
-                git clone --depth 1 https://github.com/vathpela/gnu-efi.git
-                cd gnu-efi
-              else
-                tar xzf gnu-efi.tar.gz
-                cd gnu-efi-*
-              fi
-            else
-              tar xjf gnu-efi.tar.bz2
-              cd gnu-efi-*
-            fi
-            # Build for ARM64 using cross-compiler
-            make ARCH=aarch64 CROSS_COMPILE=aarch64-linux-gnu-
-            # Install the built files
-            mkdir -p /usr/lib/aarch64-linux-gnu/gnu-efi
-            cp gnuefi/crt0-efi-aarch64.o /usr/lib/aarch64-linux-gnu/gnu-efi/ 2>/dev/null || \
-            find . -name "crt0-efi-aarch64.o" -exec cp {} /usr/lib/aarch64-linux-gnu/gnu-efi/ \;
-            find . -name "elf_*_efi.lds" -exec cp {} /usr/lib/aarch64-linux-gnu/gnu-efi/ \;
-            echo "gnu-efi built and installed"
-          else
-            echo "CRT0 found at: $CRT0"
-          fi
-
-      # Verify CRT exists
-      - name: Verify CRT
-        run: |
-          CRT0=$(find /usr/lib* -name "crt0-efi-aarch64.o" 2>/dev/null | head -1)
-          if [ -z "$CRT0" ]; then
-            echo "ERROR: crt0-efi-aarch64.o not found after installation"
-            exit 1
-          fi
-          echo "Found CRT0 at: $CRT0"
-          ls -l "$CRT0"
-
-      # Build EFI
-      - name: Build BOOTAA64.EFI
-        run: |
-          make clean
+          cd BaseTools
           make
+          cd ..
 
-      # Verify output
-      - name: Verify EFI binary
+      # Setup EDK2 environment and build
+      - name: Build EDK2 modules
         run: |
-          file BOOTAA64.EFI
+          export PYTHON3_ENABLE=1
+          export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
+          source edksetup.sh
+          build -b DEBUG -a AARCH64 -t GCC5 -p EmbeddedPkg/EmbeddedPkg.dsc -m EmbeddedPkg/Application/ConfigTableLoader/DtbLoader.inf
+          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -m ShellPkg/Application/Shell/Shell.inf
 
-      # Upload artifact
-      - name: Upload EFI artifact
+      # Locate and verify built EFI files
+      - name: Locate built EFI files
+        run: |
+          echo "=== Searching for built EFI files ==="
+          find Build -name "*.efi" -type f || echo "No EFI files found"
+          echo ""
+          echo "=== DtbLoader.efi ==="
+          find Build -name "DtbLoader.efi" -type f || echo "DtbLoader.efi not found"
+          echo ""
+          echo "=== Shell.efi ==="
+          find Build -name "Shell.efi" -type f || echo "Shell.efi not found"
+
+      # Upload artifacts
+      - name: Upload EFI artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: BOOTAA64.EFI
-          path: BOOTAA64.EFI
+          name: edk2-arm64-efi
+          path: |
+            Build/**/DtbLoader.efi
+            Build/**/Shell.efi
+          if-no-files-found: error
