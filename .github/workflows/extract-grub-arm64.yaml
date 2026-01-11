@@ -1,0 +1,51 @@
+name: Extract grubaa64.efi (Debian ARM64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  grub-arm64:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12
+
+    steps:
+      - name: Enable ARM64 architecture
+        run: |
+          dpkg --add-architecture arm64
+          apt-get update
+
+      - name: Install Debian ARM64 GRUB binaries
+        run: |
+          apt-get install -y --no-install-recommends \
+            grub-efi-arm64-bin:arm64
+
+      - name: Locate grubaa64.efi
+        run: |
+          find /usr/lib/grub -name grubaa64.efi || echo "Searching for grubaa64.efi..."
+
+      - name: Copy grubaa64.efi
+        run: |
+          mkdir -p out
+          if [ -f /usr/lib/grub/arm64-efi/grubaa64.efi ]; then
+            cp /usr/lib/grub/arm64-efi/grubaa64.efi out/
+            echo "Found grubaa64.efi at /usr/lib/grub/arm64-efi/grubaa64.efi"
+          else
+            # Try alternative locations
+            GRUB_FILE=$(find /usr -name grubaa64.efi 2>/dev/null | head -1)
+            if [ -n "$GRUB_FILE" ]; then
+              cp "$GRUB_FILE" out/grubaa64.efi
+              echo "Found grubaa64.efi at $GRUB_FILE"
+            else
+              echo "ERROR: grubaa64.efi not found"
+              exit 1
+            fi
+          fi
+          ls -lh out/grubaa64.efi
+
+      - name: Upload grubaa64.efi
+        uses: actions/upload-artifact@v4
+        with:
+          name: grubaa64
+          path: out/grubaa64.efi
+
