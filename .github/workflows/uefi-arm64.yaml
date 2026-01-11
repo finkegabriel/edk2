@@ -97,15 +97,20 @@ jobs:
           if [ -f "$HANDLE_UNI" ]; then
             echo "✓ File exists: $HANDLE_UNI"
             ls -la "$HANDLE_UNI"
-            # Ensure file is readable
+            # Ensure file is readable and has correct permissions
             chmod 644 "$HANDLE_UNI" || true
             # Test if file can be read
             head -1 "$HANDLE_UNI" || echo "ERROR: Cannot read file"
+            # Check file encoding and convert to Unix line endings if needed
+            file "$HANDLE_UNI" || true
+            # Ensure Unix line endings
+            dos2unix "$HANDLE_UNI" 2>/dev/null || sed -i 's/\r$//' "$HANDLE_UNI" || true
           else
             echo "✗ File NOT found: $HANDLE_UNI"
             echo "Searching for similar files..."
             find ShellPkg/Library/UefiHandleParsingLib -type f -name "*.uni" || echo "No .uni files found"
             find ShellPkg/Library/UefiHandleParsingLib -type f || echo "No files found in directory"
+            exit 1
           fi
           
           echo ""
@@ -114,13 +119,15 @@ jobs:
             echo "✓ File exists: $ACPI_UNI"
             ls -la "$ACPI_UNI"
             chmod 644 "$ACPI_UNI" || true
+            dos2unix "$ACPI_UNI" 2>/dev/null || sed -i 's/\r$//' "$ACPI_UNI" || true
           else
             echo "✗ File NOT found: $ACPI_UNI"
           fi
           
           echo ""
-          echo "Listing all .uni files in ShellPkg..."
-          find ShellPkg -name "*.uni" -type f | head -20
+          echo "Fixing all .uni files in ShellPkg (permissions and line endings)..."
+          find ShellPkg -name "*.uni" -type f -exec chmod 644 {} \; || true
+          find ShellPkg -name "*.uni" -type f -exec sed -i 's/\r$//' {} \; || true
 
       # Temporarily exclude problematic library from ShellPkg.dsc
       - name: Exclude UefiShellAcpiViewCommandLib from build
@@ -136,9 +143,9 @@ jobs:
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
           source edksetup.sh
           build -b DEBUG -a AARCH64 -t GCC5 -p EmbeddedPkg/EmbeddedPkg.dsc -m EmbeddedPkg/Application/ConfigTableLoader/DtbLoader.inf
-          # Build ShellPkg platform (builds all components including Shell.efi)
-          # Using NO_SHELL_PROFILES to skip optional components that might have issues
-          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -D NO_SHELL_PROFILES
+          # Build Shell application module (dependencies will be built automatically)
+          # Building just the module should avoid processing all platform components
+          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -m ShellPkg/Application/Shell/Shell.inf
 
       # Locate and verify built EFI files
       - name: Locate built EFI files
