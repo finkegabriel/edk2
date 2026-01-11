@@ -36,10 +36,18 @@ jobs:
             file \
             git
 
-      # Verify CRT exists
+      # Verify CRT exists (check multiple possible locations)
       - name: Verify CRT
         run: |
-          ls -l /usr/lib/aarch64-linux-gnu/gnu-efi/crt0-efi-aarch64.o
+          CRT0=$(find /usr/lib* -name "crt0-efi-aarch64.o" 2>/dev/null | head -1)
+          if [ -z "$CRT0" ]; then
+            echo "ERROR: crt0-efi-aarch64.o not found in any expected location"
+            echo "Searching in: /usr/lib/aarch64-linux-gnu/gnu-efi /usr/lib/gnu-efi /usr/lib64/gnu-efi"
+            find /usr/lib* -name "*gnu-efi*" -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found CRT0 at: $CRT0"
+          ls -l "$CRT0"
 
       # Build EFI
       - name: Build BOOTAA64.EFI
