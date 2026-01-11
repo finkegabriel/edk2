@@ -128,6 +128,31 @@ jobs:
           echo "Fixing all .uni files in ShellPkg (permissions and line endings)..."
           find ShellPkg -name "*.uni" -type f -exec chmod 644 {} \; || true
           find ShellPkg -name "*.uni" -type f -exec sed -i 's/\r$//' {} \; || true
+          
+          echo ""
+          echo "Testing file access from Python (EDK2 uses Python)..."
+          python3 << EOF
+import os
+import sys
+
+handle_uni = "ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni"
+if os.path.exists(handle_uni):
+    print(f"✓ File exists: {handle_uni}")
+    print(f"  Absolute path: {os.path.abspath(handle_uni)}")
+    print(f"  Readable: {os.access(handle_uni, os.R_OK)}")
+    print(f"  Size: {os.path.getsize(handle_uni)} bytes")
+    try:
+        with open(handle_uni, 'r', encoding='utf-8') as f:
+            first_line = f.readline()
+            print(f"  First line: {first_line[:50]}...")
+        print("✓ File can be opened and read successfully")
+    except Exception as e:
+        print(f"✗ ERROR opening file: {e}")
+        sys.exit(1)
+else:
+    print(f"✗ File NOT found: {handle_uni}")
+    sys.exit(1)
+EOF
 
       # Temporarily exclude problematic library from ShellPkg.dsc
       - name: Exclude UefiShellAcpiViewCommandLib from build
@@ -142,6 +167,20 @@ jobs:
           export PYTHON3_ENABLE=1
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
           source edksetup.sh
+          
+          # Verify file is still accessible right before build
+          echo "=== Pre-build file verification ==="
+          HANDLE_UNI="ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni"
+          if [ -f "$HANDLE_UNI" ]; then
+            echo "✓ File exists before build: $HANDLE_UNI"
+            ls -la "$HANDLE_UNI"
+            python3 -c "import os; f='$HANDLE_UNI'; print(f'Python can access: {os.path.exists(f)}, readable: {os.access(f, os.R_OK)}')"
+          else
+            echo "✗ File NOT found before build: $HANDLE_UNI"
+            exit 1
+          fi
+          echo ""
+          
           build -b DEBUG -a AARCH64 -t GCC5 -p EmbeddedPkg/EmbeddedPkg.dsc -m EmbeddedPkg/Application/ConfigTableLoader/DtbLoader.inf
           # Build Shell application module (dependencies will be built automatically)
           # Building just the module should avoid processing all platform components
