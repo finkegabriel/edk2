@@ -11,13 +11,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install toolchain
+    - name: Install ARM64 EFI toolchain
       run: |
+        sudo dpkg --add-architecture arm64
         sudo apt update
         sudo apt install -y \
           gcc-aarch64-linux-gnu \
-          gnu-efi \
-          binutils-aarch64-linux-gnu
+          binutils-aarch64-linux-gnu \
+          gnu-efi:arm64 \
+          libgnuefi-dev:arm64
+
 
     - name: Build EFI
       run: |
