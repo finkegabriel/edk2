@@ -65,6 +65,14 @@ jobs:
           # Replace array.tostring() with array.tobytes() for Python 3.9+ compatibility
           find BaseTools/Source/Python -name "*.py" -type f -exec sed -i 's/\.tostring()/\.tobytes()/g' {} \;
 
+      # Verify required files exist
+      - name: Verify ShellPkg files
+        run: |
+          echo "Checking for required ShellPkg files..."
+          ls -la ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni || echo "UefiHandleParsingLib.uni not found"
+          ls -la ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.uni || echo "UefiShellAcpiViewCommandLib.uni not found"
+          find ShellPkg -name "*.uni" | head -10
+
       # Setup EDK2 environment and build
       - name: Build EDK2 modules
         shell: bash
@@ -73,8 +81,8 @@ jobs:
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
           source edksetup.sh
           build -b DEBUG -a AARCH64 -t GCC5 -p EmbeddedPkg/EmbeddedPkg.dsc -m EmbeddedPkg/Application/ConfigTableLoader/DtbLoader.inf
-          # Build ShellPkg platform (without -m to build all dependencies)
-          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc
+          # Build Shell application module (dependencies will be built automatically)
+          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -m ShellPkg/Application/Shell/Shell.inf
 
       # Locate and verify built EFI files
       - name: Locate built EFI files
