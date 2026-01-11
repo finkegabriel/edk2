@@ -81,8 +81,9 @@ jobs:
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
           source edksetup.sh
           build -b DEBUG -a AARCH64 -t GCC5 -p EmbeddedPkg/EmbeddedPkg.dsc -m EmbeddedPkg/Application/ConfigTableLoader/DtbLoader.inf
-          # Build Shell application module (dependencies will be built automatically)
-          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -m ShellPkg/Application/Shell/Shell.inf
+          # Build ShellPkg platform (builds all components including Shell.efi)
+          # Using NO_SHELL_PROFILES to skip optional components that might have issues
+          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -D NO_SHELL_PROFILES
 
       # Locate and verify built EFI files
       - name: Locate built EFI files
