@@ -32,18 +32,66 @@ jobs:
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
             gnu-efi:arm64 \
+            gnu-efi-dev:arm64 \
             make \
             file \
-            git
+            git \
+            wget \
+            bzip2
 
-      # Verify CRT exists (check multiple possible locations)
+      # Debug: Check what gnu-efi files are installed
+      - name: Debug gnu-efi installation
+        run: |
+          echo "=== Checking gnu-efi package files ==="
+          dpkg -L gnu-efi:arm64 2>/dev/null | grep -E "(crt0|\.o|\.lds)" || echo "No object files found in gnu-efi:arm64"
+          echo ""
+          echo "=== Searching for gnu-efi directories ==="
+          find /usr/lib* -type d -name "*gnu-efi*" 2>/dev/null || true
+          echo ""
+          echo "=== Searching for crt0 files ==="
+          find /usr -name "crt0-efi*" 2>/dev/null || echo "No crt0 files found"
+          echo ""
+          echo "=== Searching for linker scripts ==="
+          find /usr -name "*efi*.lds" 2>/dev/null || echo "No EFI linker scripts found"
+
+      # Build gnu-efi from source if needed
+      - name: Build gnu-efi for ARM64 if missing
+        run: |
+          CRT0=$(find /usr/lib* -name "crt0-efi-aarch64.o" 2>/dev/null | head -1)
+          if [ -z "$CRT0" ]; then
+            echo "CRT0 not found, building gnu-efi from source..."
+            cd /tmp
+            # Try to download gnu-efi source
+            if ! wget -q https://sourceforge.net/projects/gnu-efi/files/gnu-efi-3.0.15.tar.bz2/download -O gnu-efi.tar.bz2; then
+              if ! wget -q https://github.com/vathpela/gnu-efi/archive/refs/tags/v3.0.15.tar.gz -O gnu-efi.tar.gz; then
+                git clone --depth 1 https://github.com/vathpela/gnu-efi.git
+                cd gnu-efi
+              else
+                tar xzf gnu-efi.tar.gz
+                cd gnu-efi-*
+              fi
+            else
+              tar xjf gnu-efi.tar.bz2
+              cd gnu-efi-*
+            fi
+            # Build for ARM64 using cross-compiler
+            make ARCH=aarch64 CROSS_COMPILE=aarch64-linux-gnu-
+            # Install the built files
+            mkdir -p /usr/lib/aarch64-linux-gnu/gnu-efi
+            cp gnuefi/crt0-efi-aarch64.o /usr/lib/aarch64-linux-gnu/gnu-efi/ 2>/dev/null || \
+            find . -name "crt0-efi-aarch64.o" -exec cp {} /usr/lib/aarch64-linux-gnu/gnu-efi/ \;
+            find . -name "elf_*_efi.lds" -exec cp {} /usr/lib/aarch64-linux-gnu/gnu-efi/ \;
+            echo "gnu-efi built and installed"
+          else
+            echo "CRT0 found at: $CRT0"
+          fi
+
+      # Verify CRT exists
       - name: Verify CRT
         run: |
           CRT0=$(find /usr/lib* -name "crt0-efi-aarch64.o" 2>/dev/null | head -1)
           if [ -z "$CRT0" ]; then
-            echo "ERROR: crt0-efi-aarch64.o not found in any expected location"
-            echo "Searching in: /usr/lib/aarch64-linux-gnu/gnu-efi /usr/lib/gnu-efi /usr/lib64/gnu-efi"
-            find /usr/lib* -name "*gnu-efi*" -type d 2>/dev/null || true
+            echo "ERROR: crt0-efi-aarch64.o not found after installation"
             exit 1
           fi
           echo "Found CRT0 at: $CRT0"

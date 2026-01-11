@@ -12,7 +12,8 @@ EFIARCH  := $(EFIINC)/arm64
 GNUEFI_DIRS := \
   /usr/lib/aarch64-linux-gnu/gnu-efi \
   /usr/lib/gnu-efi \
-  /usr/lib64/gnu-efi
+  /usr/lib64/gnu-efi \
+  /usr/lib
 
 CRT0 := $(firstword $(wildcard \
   $(addsuffix /crt0-efi-aarch64.o,$(GNUEFI_DIRS))))
