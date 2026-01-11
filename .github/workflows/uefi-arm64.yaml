@@ -51,6 +51,7 @@ jobs:
 
       # Setup EDK2 environment and build
       - name: Build EDK2 modules
+        shell: bash
         run: |
           export PYTHON3_ENABLE=1
           export GCC5_AARCH64_PREFIX=aarch64-linux-gnu-
