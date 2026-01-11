@@ -1,0 +1,41 @@
+name: Build ARM64 UEFI App
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install cross toolchain
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          gcc-aarch64-linux-gnu \
+          gnu-efi \
+          binutils-aarch64-linux-gnu
+
+    - name: Build EFI application
+      run: |
+        export ARCH=aarch64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+
+        make \
+          CC=${CROSS_COMPILE}gcc \
+          LD=${CROSS_COMPILE}ld \
+          OBJCOPY=${CROSS_COMPILE}objcopy
+
+    - name: Verify EFI binary
+      run: |
+        file BOOTAA64.EFI
+        aarch64-linux-gnu-objdump -f BOOTAA64.EFI
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: BOOTAA64.EFI
+        path: BOOTAA64.EFI
