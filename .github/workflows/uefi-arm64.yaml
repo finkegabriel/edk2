@@ -1,4 +1,4 @@
-name: Build ARM64 UEFI EFI
+name: Build ARM64 UEFI EFI Modules
 
 # Trigger manually or on push
 on:
