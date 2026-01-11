@@ -59,6 +59,12 @@ jobs:
           make -k || true
           cd ..
 
+      # Fix Python 3 compatibility issues
+      - name: Fix Python 3 compatibility
+        run: |
+          # Replace array.tostring() with array.tobytes() for Python 3.9+ compatibility
+          find BaseTools/Source/Python -name "*.py" -type f -exec sed -i 's/\.tostring()/\.tobytes()/g' {} \;
+
       # Setup EDK2 environment and build
       - name: Build EDK2 modules
         shell: bash
