@@ -44,7 +44,7 @@ jobs:
           cd BaseTools
           # Disable problematic warning errors for GCC 12+ compatibility
           # Add -Wno-error flags to BUILD_CFLAGS in header.makefile
-          sed -i 's/-Wno-unused-result -nostdlib/-Wno-unused-result -Wno-error=vla-parameter -Wno-error=use-after-free -Wno-error=dangling-pointer -nostdlib/g' Source/C/Makefiles/header.makefile
+          sed -i 's/-Wno-unused-result -nostdlib/-Wno-unused-result -Wno-error=vla-parameter -Wno-error=use-after-free -Wno-error=dangling-pointer -Wno-error=stringop-overflow -nostdlib/g' Source/C/Makefiles/header.makefile
           make
           cd ..
 
