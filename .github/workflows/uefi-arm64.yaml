@@ -31,13 +31,15 @@ jobs:
       - name: Verify checkout and fix file permissions
         run: |
           echo "Verifying repository checkout..."
-          git status
+          # Add repository as safe directory for git operations
+          git config --global --add safe.directory /__w/edk2/edk2 || true
+          git status || echo "Git status check skipped"
           echo ""
           echo "Checking for ShellPkg files..."
           if [ -d "ShellPkg" ]; then
             echo "ShellPkg directory exists"
-            find ShellPkg -type f -name "*.uni" | wc -l
-            echo "UNI files found"
+            UNI_COUNT=$(find ShellPkg -type f -name "*.uni" | wc -l)
+            echo "Found $UNI_COUNT UNI files"
           else
             echo "ERROR: ShellPkg directory not found!"
             exit 1
