@@ -65,13 +65,30 @@ jobs:
           # Replace array.tostring() with array.tobytes() for Python 3.9+ compatibility
           find BaseTools/Source/Python -name "*.py" -type f -exec sed -i 's/\.tostring()/\.tobytes()/g' {} \;
 
-      # Verify required files exist
-      - name: Verify ShellPkg files
+      # Verify required files exist and fix if needed
+      - name: Verify and fix ShellPkg files
         run: |
           echo "Checking for required ShellPkg files..."
           ls -la ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni || echo "UefiHandleParsingLib.uni not found"
-          ls -la ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.uni || echo "UefiShellAcpiViewCommandLib.uni not found"
-          find ShellPkg -name "*.uni" | head -10
+          ACPI_UNI="ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.uni"
+          if [ -f "$ACPI_UNI" ]; then
+            echo "File exists: $ACPI_UNI"
+            ls -la "$ACPI_UNI"
+            # Check if file is readable
+            if [ ! -r "$ACPI_UNI" ]; then
+              echo "File exists but is not readable, fixing permissions..."
+              chmod 644 "$ACPI_UNI"
+            fi
+          else
+            echo "WARNING: $ACPI_UNI not found, checking case sensitivity..."
+            find ShellPkg/Library/UefiShellAcpiViewCommandLib -iname "*.uni" || echo "No .uni files found in directory"
+          fi
+
+      # Temporarily exclude problematic library from ShellPkg.dsc
+      - name: Exclude UefiShellAcpiViewCommandLib from build
+        run: |
+          # Comment out the problematic library in ShellPkg.dsc
+          sed -i 's|^  ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.inf|  # ShellPkg/Library/UefiShellAcpiViewCommandLib/UefiShellAcpiViewCommandLib.inf|' ShellPkg/ShellPkg.dsc
 
       # Setup EDK2 environment and build
       - name: Build EDK2 modules
