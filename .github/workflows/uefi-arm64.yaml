@@ -154,7 +154,14 @@ jobs:
           if [ -f "$HANDLE_UNI" ]; then
             echo "✓ File exists before build: $HANDLE_UNI"
             ls -la "$HANDLE_UNI"
-            python3 -c "import os; f='$HANDLE_UNI'; print(f'Python can access: {os.path.exists(f)}, readable: {os.access(f, os.R_OK)}')"
+            # Test opening in binary mode (like EDK2 does)
+            python3 -c "import os; f='$HANDLE_UNI'; print(f'Python can access: {os.path.exists(f)}, readable: {os.access(f, os.R_OK)}'); open(f, 'rb').close(); print('✓ File can be opened in binary mode')"
+            # Ensure file is not a symlink and is a regular file
+            if [ -L "$HANDLE_UNI" ]; then
+              echo "WARNING: File is a symlink, resolving..."
+              REAL_FILE=$(readlink -f "$HANDLE_UNI")
+              echo "Real file: $REAL_FILE"
+            fi
           else
             echo "✗ File NOT found before build: $HANDLE_UNI"
             exit 1
@@ -162,6 +169,11 @@ jobs:
           echo ""
           
           build -b DEBUG -a AARCH64 -t GCC5 -p EmbeddedPkg/EmbeddedPkg.dsc -m EmbeddedPkg/Application/ConfigTableLoader/DtbLoader.inf
+          
+          # Try building the library first, then Shell
+          echo "=== Building UefiHandleParsingLib first ==="
+          build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -m ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf || echo "Library build failed, continuing..."
+          
           # Build Shell application module (dependencies will be built automatically)
           # Building just the module should avoid processing all platform components
           build -b DEBUG -a AARCH64 -t GCC5 -p ShellPkg/ShellPkg.dsc -m ShellPkg/Application/Shell/Shell.inf
