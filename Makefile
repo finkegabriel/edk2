@@ -1,15 +1,12 @@
 ARCH            := aarch64
 CROSS_COMPILE   := aarch64-linux-gnu-
 
-CC       := $(CROSS_COMPILE)gcc
-LD       := $(CROSS_COMPILE)ld
-OBJCOPY  := $(CROSS_COMPILE)objcopy
-
 EFIINC   := /usr/include/efi
-EFIARCH  := $(EFIINC)/$(ARCH)
-EFILIB   := /usr/lib/gnu-efi/$(ARCH)
-CRT0     := $(EFILIB)/crt0-efi-$(ARCH).o
-LDSCRIPT := $(EFILIB)/elf_$(ARCH)_efi.lds
+EFIARCH  := $(EFIINC)/arm64
+EFILIB   := /usr/lib/gnu-efi/arm64
+CRT0     := $(EFILIB)/crt0-efi-aarch64.o
+LDSCRIPT := $(EFILIB)/elf_aarch64_efi.lds
+
 
 CFLAGS   := -I$(EFIINC) -I$(EFIARCH) \
             -fpic -fshort-wchar \
