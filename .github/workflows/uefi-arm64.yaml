@@ -37,6 +37,8 @@ jobs:
             uuid-dev \
             file \
             git
+          # Create python symlink for EDK2 build scripts
+          ln -sf /usr/bin/python3 /usr/bin/python
 
       # Build BaseTools
       - name: Build EDK2 BaseTools
