@@ -131,29 +131,8 @@ jobs:
           
           echo ""
           echo "Testing file access from Python (EDK2 uses Python)..."
-          cat > /tmp/test_uni_file.py << 'PYEOF'
-import os
-import sys
-
-handle_uni = "ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni"
-if os.path.exists(handle_uni):
-    print(f"✓ File exists: {handle_uni}")
-    print(f"  Absolute path: {os.path.abspath(handle_uni)}")
-    print(f"  Readable: {os.access(handle_uni, os.R_OK)}")
-    print(f"  Size: {os.path.getsize(handle_uni)} bytes")
-    try:
-        with open(handle_uni, 'r', encoding='utf-8') as f:
-            first_line = f.readline()
-            print(f"  First line: {first_line[:50]}...")
-        print("✓ File can be opened and read successfully")
-    except Exception as e:
-        print(f"✗ ERROR opening file: {e}")
-        sys.exit(1)
-else:
-    print(f"✗ File NOT found: {handle_uni}")
-    sys.exit(1)
-PYEOF
-          python3 /tmp/test_uni_file.py
+          HANDLE_UNI="ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni"
+          python3 -c "import os; f='$HANDLE_UNI'; print('File exists:', os.path.exists(f)); print('Readable:', os.access(f, os.R_OK) if os.path.exists(f) else False); open(f).close() if os.path.exists(f) else None"
 
       # Temporarily exclude problematic library from ShellPkg.dsc
       - name: Exclude UefiShellAcpiViewCommandLib from build
