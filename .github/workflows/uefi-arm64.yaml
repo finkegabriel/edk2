@@ -32,7 +32,6 @@ jobs:
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
             gnu-efi:arm64 \
-            libgnuefi-dev:arm64 \
             make \
             file \
             git
