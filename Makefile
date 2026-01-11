@@ -7,11 +7,18 @@ OBJCOPY  := $(CROSS_COMPILE)objcopy
 
 EFIINC   := /usr/include/efi
 EFIARCH  := $(EFIINC)/arm64
-EFILIB   := /usr/lib/gnu-efi/arm64
-CRT0     := $(EFILIB)/crt0-efi-aarch64.o
 
-# Auto-detect linker script
-LDSCRIPT := $(shell find /usr/lib/gnu-efi -name 'elf_*_efi.lds' | head -n 1)
+# Possible gnu-efi library roots (Ubuntu, Debian, multiarch)
+GNUEFI_DIRS := \
+  /usr/lib/aarch64-linux-gnu/gnu-efi \
+  /usr/lib/gnu-efi \
+  /usr/lib64/gnu-efi
+
+CRT0 := $(firstword $(wildcard \
+  $(addsuffix /crt0-efi-aarch64.o,$(GNUEFI_DIRS))))
+
+LDSCRIPT := $(firstword $(wildcard \
+  $(addsuffix /elf_*_efi.lds,$(GNUEFI_DIRS))))
 
 CFLAGS   := -I$(EFIINC) -I$(EFIARCH) \
             -fpic -fshort-wchar \
@@ -19,11 +26,13 @@ CFLAGS   := -I$(EFIINC) -I$(EFIARCH) \
 
 TARGET   := BOOTAA64.EFI
 
-all: checklds $(TARGET)
+all: check $(TARGET)
 
-checklds:
+check:
+	@test -n "$(CRT0)" || (echo "ERROR: crt0-efi-aarch64.o not found"; exit 1)
 	@test -n "$(LDSCRIPT)" || (echo "ERROR: EFI linker script not found"; exit 1)
-	@echo "Using linker script: $(LDSCRIPT)"
+	@echo "Using CRT0: $(CRT0)"
+	@echo "Using LDSCRIPT: $(LDSCRIPT)"
 
 main.o: main.c
 	$(CC) $(CFLAGS) -c $< -o $@
