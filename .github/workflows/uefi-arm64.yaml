@@ -14,11 +14,14 @@ jobs:
       image: debian:12  # Use Debian 12 (bookworm) to ensure arm64 packages exist
 
     steps:
-      # Checkout repo with submodules
+      # Checkout repo
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      
+      # Initialize and update submodules
+      - name: Checkout submodules
+        run: |
+          git submodule update --init --recursive
 
       # Add ARM64 architecture and update packages
       - name: Setup ARM64 multiarch
