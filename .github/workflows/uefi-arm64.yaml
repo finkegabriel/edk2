@@ -42,9 +42,9 @@ jobs:
       - name: Build EDK2 BaseTools
         run: |
           cd BaseTools
-          # Disable VLA parameter warning error for BrotliCompress (GCC 12+ compatibility)
-          # Add -Wno-error=vla-parameter to BUILD_CFLAGS in header.makefile
-          sed -i 's/-Wno-unused-result -nostdlib/-Wno-unused-result -Wno-error=vla-parameter -nostdlib/g' Source/C/Makefiles/header.makefile
+          # Disable problematic warning errors for GCC 12+ compatibility
+          # Add -Wno-error flags to BUILD_CFLAGS in header.makefile
+          sed -i 's/-Wno-unused-result -nostdlib/-Wno-unused-result -Wno-error=vla-parameter -Wno-error=use-after-free -nostdlib/g' Source/C/Makefiles/header.makefile
           make
           cd ..
 
