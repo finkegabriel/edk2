@@ -1,37 +1,61 @@
 name: Build ARM64 UEFI EFI
 
+# Trigger manually or on push
 on:
   push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # GitHub runner
+    container:
+      image: debian:12  # Use Debian 12 (bookworm) to ensure arm64 packages exist
 
     steps:
-    - uses: actions/checkout@v4
+      # Checkout repo
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-    - name: Install ARM64 EFI toolchain
-      run: |
-        sudo dpkg --add-architecture arm64
-        sudo apt update
-        sudo apt install -y \
-          gcc-aarch64-linux-gnu \
-          binutils-aarch64-linux-gnu \
-          gnu-efi:arm64 \
-          libgnuefi-dev:arm64
+      # Add ARM64 architecture and update packages
+      - name: Setup ARM64 multiarch
+        run: |
+          dpkg --add-architecture arm64
+          apt-get update
 
+      # Install cross toolchain and ARM64 gnu-efi
+      - name: Install ARM64 build tools
+        run: |
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            gnu-efi:arm64 \
+            libgnuefi-dev:arm64 \
+            make \
+            file \
+            git
 
-    - name: Build EFI
-      run: |
-        make
+      # Verify CRT exists
+      - name: Verify CRT
+        run: |
+          ls -l /usr/lib/aarch64-linux-gnu/gnu-efi/crt0-efi-aarch64.o
 
-    - name: Verify output
-      run: |
-        file BOOTAA64.EFI
+      # Build EFI
+      - name: Build BOOTAA64.EFI
+        run: |
+          make clean
+          make
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: BOOTAA64.EFI
-        path: BOOTAA64.EFI
+      # Verify output
+      - name: Verify EFI binary
+        run: |
+          file BOOTAA64.EFI
+
+      # Upload artifact
+      - name: Upload EFI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOOTAA64.EFI
+          path: BOOTAA64.EFI
