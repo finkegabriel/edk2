@@ -17,11 +17,6 @@ jobs:
       # Checkout repo
       - name: Checkout source
         uses: actions/checkout@v4
-      
-      # Initialize and update submodules
-      - name: Checkout submodules
-        run: |
-          git submodule update --init --recursive
 
       # Add ARM64 architecture and update packages
       - name: Setup ARM64 multiarch
@@ -45,6 +40,11 @@ jobs:
             git
           # Create python symlink for EDK2 build scripts
           ln -sf /usr/bin/python3 /usr/bin/python
+
+      # Initialize and update submodules
+      - name: Checkout submodules
+        run: |
+          git submodule update --init --recursive
 
       # Build BaseTools
       - name: Build EDK2 BaseTools
