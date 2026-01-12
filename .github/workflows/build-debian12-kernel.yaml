@@ -160,13 +160,13 @@ jobs:
           
           # Create a summary file
           cat > ../output/build-info.txt << EOF
-Kernel Version: $KERNEL_VERSION
-Architecture: ARM64
-Target: Snapdragon 850
-ACPI Enabled: Yes
-ACPI Parking Protocol: Yes
-Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-EOF
+          Kernel Version: $KERNEL_VERSION
+          Architecture: ARM64
+          Target: Snapdragon 850
+          ACPI Enabled: Yes
+          ACPI Parking Protocol: Yes
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          EOF
           cat ../output/build-info.txt
 
       - name: Upload ARM64 kernel artifacts
