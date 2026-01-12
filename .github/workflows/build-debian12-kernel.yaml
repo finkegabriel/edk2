@@ -65,12 +65,7 @@ jobs:
             else
               echo "No defconfig found, creating minimal config..."
               # Create a minimal config
-              cat > .config << 'EOFCONFIG'
-              CONFIG_ARM64=y
-              CONFIG_ACPI=y
-              CONFIG_ARM64_ACPI_PARKING_PROTOCOL=y
-              CONFIG_OF=y
-              EOFCONFIG
+              printf 'CONFIG_ARM64=y\nCONFIG_ACPI=y\nCONFIG_ARM64_ACPI_PARKING_PROTOCOL=y\nCONFIG_OF=y\n' > .config
             fi
           fi
           
