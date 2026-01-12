@@ -5,6 +5,16 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      kernel_source_url:
+        description: 'Optional: URL to clone kernel source from (e.g., https://github.com/torvalds/linux.git)'
+        required: false
+        type: string
+      kernel_branch:
+        description: 'Optional: Branch or tag to checkout (e.g., v6.1)'
+        required: false
+        type: string
+        default: 'master'
 
 jobs:
   build-kernel:
@@ -37,14 +47,58 @@ jobs:
             python3 \
             python3-pip
 
-      - name: Checkout kernel source
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: kernel-source
+
+      - name: Setup kernel source
+        run: |
+          # Check if kernel source URL is provided
+          if [ -n "${{ inputs.kernel_source_url }}" ]; then
+            echo "Cloning kernel source from: ${{ inputs.kernel_source_url }}"
+            git clone --depth 1 --branch "${{ inputs.kernel_branch }}" "${{ inputs.kernel_source_url }}" kernel-source || \
+            git clone --depth 1 "${{ inputs.kernel_source_url }}" kernel-source
+            KERNEL_DIR="kernel-source"
+          # Check if kernel source is in the repository
+          elif [ -f Makefile ]; then
+            echo "Kernel source found in repository root"
+            KERNEL_DIR="."
+          elif [ -d kernel-source ] && [ -f kernel-source/Makefile ]; then
+            echo "Kernel source found in kernel-source directory"
+            KERNEL_DIR="kernel-source"
+          else
+            echo "No kernel source found in repository"
+            echo "Searching subdirectories..."
+            KERNEL_DIR=$(find . -maxdepth 3 -name "Makefile" -type f -path "*/linux/*" -o -name "Makefile" -type f | head -1 | xargs dirname 2>/dev/null)
+            if [ -n "$KERNEL_DIR" ] && [ -f "$KERNEL_DIR/Makefile" ]; then
+              echo "Found kernel source in: $KERNEL_DIR"
+            else
+              echo "ERROR: No kernel source found."
+              echo "Please either:"
+              echo "1. Add kernel source to your repository"
+              echo "2. Use workflow_dispatch and provide kernel_source_url input"
+              echo "3. Or ensure kernel source is in a subdirectory"
+              exit 1
+            fi
+          fi
+          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
+          echo "Kernel source directory: $KERNEL_DIR"
+
+      - name: Verify kernel source
+        run: |
+          cd $KERNEL_DIR
+          echo "Checking kernel source structure..."
+          if [ ! -f Makefile ]; then
+            echo "ERROR: No Makefile found"
+            ls -la
+            exit 1
+          fi
+          echo "✓ Makefile found"
+          echo "Kernel version info:"
+          head -5 Makefile | grep -E "VERSION|PATCHLEVEL|SUBLEVEL" || true
 
       - name: Setup kernel configuration for ARM64 Snapdragon 850
         run: |
-          cd kernel-source
+          cd $KERNEL_DIR
           
           # Set cross-compilation environment
           export ARCH=arm64
@@ -114,7 +168,13 @@ jobs:
 
       - name: Build ARM64 kernel for Snapdragon 850
         run: |
-          cd kernel-source
+          cd $KERNEL_DIR
+          
+          # Verify Makefile exists
+          if [ ! -f Makefile ]; then
+            echo "ERROR: Makefile not found. Cannot build kernel."
+            exit 1
+          fi
           
           # Set cross-compilation environment
           export ARCH=arm64
@@ -123,8 +183,16 @@ jobs:
           # Get number of CPU cores for parallel build
           JOBS=$(nproc)
           
+          # Verify .config exists
+          if [ ! -f .config ]; then
+            echo "ERROR: .config file not found. Please ensure kernel configuration step completed."
+            exit 1
+          fi
+          
           # Build the kernel
           echo "Building ARM64 kernel with $JOBS parallel jobs..."
+          echo "Using config:"
+          head -20 .config | grep -E "CONFIG_ARM64|CONFIG_ACPI" || true
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS
           
           # Build kernel modules
@@ -141,7 +209,7 @@ jobs:
 
       - name: Install kernel modules
         run: |
-          cd kernel-source
+          cd $KERNEL_DIR
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           # Install modules to a staging directory
@@ -150,7 +218,7 @@ jobs:
 
       - name: Package ARM64 kernel
         run: |
-          cd kernel-source
+          cd $KERNEL_DIR
           export ARCH=arm64
           
           # Get kernel version
