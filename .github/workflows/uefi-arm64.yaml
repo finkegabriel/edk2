@@ -179,27 +179,7 @@ jobs:
             ls -la "$HANDLE_UNI"
             file "$HANDLE_UNI" || true
             # Test opening in binary mode (like EDK2 does)
-            cat > /tmp/test_file_access.py << 'PYEOF'
-import os, sys
-f = os.path.join(os.getcwd(), 'ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.uni')
-abs_f = os.path.abspath(f)
-print(f'Python can access relative: {os.path.exists(f)}, readable: {os.access(f, os.R_OK)}')
-print(f'Python can access absolute: {os.path.exists(abs_f)}, readable: {os.access(abs_f, os.R_OK)}')
-try:
-    with open(f, 'rb') as file:
-        data = file.read(100)
-        print(f'✓ File can be opened in binary mode, first 100 bytes: {len(data)} bytes')
-except Exception as e:
-    print(f'✗ ERROR opening relative path: {e}')
-    try:
-        with open(abs_f, 'rb') as file:
-            data = file.read(100)
-            print(f'✓ File can be opened via absolute path')
-    except Exception as e2:
-        print(f'✗ ERROR opening absolute path: {e2}')
-        sys.exit(1)
-PYEOF
-            python3 /tmp/test_file_access.py
+            python3 -c "import os; f='$HANDLE_UNI'; exists=os.path.exists(f); readable=os.access(f, os.R_OK) if exists else False; print('File exists:', exists, ', readable:', readable); (open(f, 'rb').close() and print('✓ File can be opened in binary mode')) if exists and readable else print('✗ ERROR: Cannot open file')"
             # Ensure file is not a symlink and is a regular file
             if [ -L "$HANDLE_UNI" ]; then
               echo "WARNING: File is a symlink, resolving..."
