@@ -55,28 +55,67 @@ jobs:
             echo "Using existing .config"
           else
             echo "Creating ARM64 defconfig..."
-            # Use ARM64 defconfig as base
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig || true
+            # Try different defconfig targets
+            if make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- help 2>/dev/null | grep -q defconfig; then
+              make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig || true
+            elif [ -f arch/arm64/configs/defconfig ]; then
+              cp arch/arm64/configs/defconfig .config
+            elif [ -f arch/arm64/configs/arm64_defconfig ]; then
+              cp arch/arm64/configs/arm64_defconfig .config
+            else
+              echo "No defconfig found, creating minimal config..."
+              # Create a minimal config
+              cat > .config << 'EOFCONFIG'
+              CONFIG_ARM64=y
+              CONFIG_ACPI=y
+              CONFIG_ARM64_ACPI_PARKING_PROTOCOL=y
+              CONFIG_OF=y
+              EOFCONFIG
+            fi
           fi
           
-          # Enable required ACPI options
+          # Enable required ACPI options using sed (works even if scripts/config doesn't exist)
           echo "Enabling ACPI configuration options..."
-          ./scripts/config --file .config --enable CONFIG_ACPI
-          ./scripts/config --file .config --enable CONFIG_ARM64_ACPI_PARKING_PROTOCOL
           
-          # Enable Snapdragon 850 specific options
-          echo "Enabling Snapdragon 850 specific options..."
-          ./scripts/config --file .config --enable CONFIG_ARCH_QCOM || true
-          ./scripts/config --file .config --enable CONFIG_ARM_SMMU || true
-          ./scripts/config --file .config --enable CONFIG_QCOM_SCM || true
+          # Function to set config option
+          set_config() {
+            local option=$1
+            local value=$2
+            if grep -q "^${option}=" .config 2>/dev/null; then
+              # Option exists, update it
+              sed -i "s|^${option}=.*|${option}=${value}|" .config
+            else
+              # Option doesn't exist, add it
+              echo "${option}=${value}" >> .config
+            fi
+          }
+          
+          # Enable ACPI options
+          set_config "CONFIG_ACPI" "y"
+          set_config "CONFIG_ARM64_ACPI_PARKING_PROTOCOL" "y"
+          
+          # Enable Snapdragon 850 specific options (if they exist in the config)
+          set_config "CONFIG_ARCH_QCOM" "y" || true
+          set_config "CONFIG_ARM_SMMU" "y" || true
+          set_config "CONFIG_QCOM_SCM" "y" || true
           
           # Enable device tree support
-          ./scripts/config --file .config --enable CONFIG_OF
-          ./scripts/config --file .config --enable CONFIG_ARM64_ACPI_PARKING_PROTOCOL
+          set_config "CONFIG_OF" "y"
+          
+          # If scripts/config exists, use it for verification
+          if [ -f scripts/config ]; then
+            echo "Using scripts/config for additional configuration..."
+            ./scripts/config --file .config --enable CONFIG_ACPI || true
+            ./scripts/config --file .config --enable CONFIG_ARM64_ACPI_PARKING_PROTOCOL || true
+          fi
           
           # Verify the configuration
           echo "Verifying configuration..."
-          grep -E "CONFIG_ACPI=|CONFIG_ARM64_ACPI_PARKING_PROTOCOL=|CONFIG_ARCH_QCOM=" .config || true
+          echo "ACPI settings:"
+          grep -E "CONFIG_ACPI=|CONFIG_ARM64_ACPI_PARKING_PROTOCOL=" .config || echo "Warning: ACPI configs not found"
+          echo ""
+          echo "Architecture settings:"
+          grep -E "CONFIG_ARCH_QCOM=|CONFIG_ARM64=" .config || true
 
       - name: Build ARM64 kernel for Snapdragon 850
         run: |
