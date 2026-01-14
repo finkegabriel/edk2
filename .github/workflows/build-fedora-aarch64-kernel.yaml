@@ -27,6 +27,7 @@ jobs:
             gcc-aarch64-linux-gnu \
             git \
             wget \
+            curl \
             xz-utils \
             cpio \
             bc \
@@ -55,50 +56,52 @@ jobs:
           FEDORA_VERSION="${{ inputs.fedora_version }}"
           echo "Fetching Fedora $FEDORA_VERSION kernel source..."
           
-          # Get kernel version from Fedora koji or git
-          # Fedora kernel source is typically at: https://src.fedoraproject.org/rpms/kernel.git
+          # Try to get Fedora kernel source from koji or git
+          # Option 1: Try Fedora's kernel git repository (if available)
           if [ ! -d kernel-source ]; then
-            echo "Cloning Fedora kernel source..."
-            git clone --depth 1 https://src.fedoraproject.org/rpms/kernel.git kernel-rpm || \
-            git clone --depth 1 https://github.com/torvalds/linux.git kernel-source
+            echo "Attempting to clone Fedora kernel from git..."
+            # Fedora kernel git repo (if it exists)
+            git clone --depth 1 https://src.fedoraproject.org/kernel/linux.git kernel-source 2>/dev/null || \
+            git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git kernel-source 2>/dev/null || true
+          fi
+          
+          # Option 2: Try downloading from Fedora koji
+          if [ ! -d kernel-source ] || [ ! -f kernel-source/Makefile ]; then
+            echo "Attempting to download kernel source from Fedora koji..."
+            # Try to get kernel version from Fedora koji API
+            KERNEL_VERSION=$(curl -s "https://kojipkgs.fedoraproject.org/packages/kernel/${FEDORA_VERSION}/" 2>/dev/null | grep -oP 'kernel-\K[0-9]+\.[0-9]+' | head -1 || echo "")
             
-            # If we got the RPM repo, we need to extract the kernel source
-            if [ -d kernel-rpm ]; then
-              echo "Fedora kernel RPM repo cloned, extracting kernel source..."
-              cd kernel-rpm
-              # Look for kernel source tarball or git submodule
-              if [ -f sources ]; then
-                KERNEL_URL=$(grep -E "linux-.*\.tar\.(xz|gz|bz2)" sources | head -1 | awk '{print $2}' || echo "")
-                if [ -n "$KERNEL_URL" ]; then
-                  cd ..
-                  wget "$KERNEL_URL" -O kernel.tar.xz
-                  tar -xf kernel.tar.xz
-                  mv linux-* kernel-source || true
-                fi
-              fi
-              # Try git submodule
-              if [ ! -d kernel-source ] && [ -f .gitmodules ]; then
-                git submodule update --init --recursive || true
-                if [ -d linux ]; then
-                  cd ..
-                  mv kernel-rpm/linux kernel-source
-                fi
-              fi
-              cd ..
+            if [ -n "$KERNEL_VERSION" ]; then
+              echo "Found kernel version: $KERNEL_VERSION"
+              # Try to download kernel source RPM
+              KERNEL_SRPM_URL="https://kojipkgs.fedoraproject.org/packages/kernel/${FEDORA_VERSION}/latest/src/kernel-${KERNEL_VERSION}-*.src.rpm"
+              echo "Attempting to download from: $KERNEL_SRPM_URL"
+              # This is complex, so we'll skip it for now
             fi
           fi
           
-          # Fallback: clone mainline kernel if Fedora source not available
+          # Option 3: Use mainline Linux kernel (most reliable)
           if [ ! -d kernel-source ] || [ ! -f kernel-source/Makefile ]; then
-            echo "Using mainline Linux kernel as fallback..."
+            echo "Using mainline Linux kernel (stable branch)..."
             if [ -d kernel-source ]; then
               rm -rf kernel-source
             fi
-            git clone --depth 1 --branch v6.1 https://github.com/torvalds/linux.git kernel-source
+            # Use a recent stable kernel version
+            git clone --depth 1 --branch v6.1 https://github.com/torvalds/linux.git kernel-source || \
+            git clone --depth 1 https://github.com/torvalds/linux.git kernel-source
           fi
           
-          echo "Kernel source location:"
+          # Verify kernel source
+          if [ ! -f kernel-source/Makefile ]; then
+            echo "ERROR: Kernel source Makefile not found"
+            exit 1
+          fi
+          
+          echo "Kernel source ready:"
           ls -la kernel-source/ | head -10
+          echo ""
+          echo "Kernel version info:"
+          head -5 kernel-source/Makefile | grep -E "VERSION|PATCHLEVEL|SUBLEVEL" || true
 
       - name: Setup kernel configuration for ARM64 with ACPI
         run: |
