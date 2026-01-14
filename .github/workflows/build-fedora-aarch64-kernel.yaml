@@ -39,7 +39,6 @@ jobs:
             python3 \
             kmod \
             grub-common \
-            grub-efi-arm64-bin \
             dosfstools \
             mtools \
             parted \
