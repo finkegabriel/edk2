@@ -1,0 +1,421 @@
+name: Build Fedora ARM64 Kernel with ACPI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      fedora_version:
+        description: 'Fedora version (e.g., 43)'
+        required: false
+        type: string
+        default: '43'
+
+jobs:
+  build-fedora-kernel:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            gcc-aarch64-linux-gnu \
+            git \
+            wget \
+            xz-utils \
+            cpio \
+            bc \
+            bison \
+            flex \
+            libssl-dev \
+            libelf-dev \
+            libncurses-dev \
+            rsync \
+            python3 \
+            kmod \
+            grub-common \
+            grub-efi-arm64-bin \
+            dosfstools \
+            mtools \
+            parted \
+            e2fsprogs \
+            qemu-utils \
+            libguestfs-tools \
+            guestfs-tools
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Fedora kernel source
+        run: |
+          FEDORA_VERSION="${{ inputs.fedora_version }}"
+          echo "Fetching Fedora $FEDORA_VERSION kernel source..."
+          
+          # Get kernel version from Fedora koji or git
+          # Fedora kernel source is typically at: https://src.fedoraproject.org/rpms/kernel.git
+          if [ ! -d kernel-source ]; then
+            echo "Cloning Fedora kernel source..."
+            git clone --depth 1 https://src.fedoraproject.org/rpms/kernel.git kernel-rpm || \
+            git clone --depth 1 https://github.com/torvalds/linux.git kernel-source
+            
+            # If we got the RPM repo, we need to extract the kernel source
+            if [ -d kernel-rpm ]; then
+              echo "Fedora kernel RPM repo cloned, extracting kernel source..."
+              cd kernel-rpm
+              # Look for kernel source tarball or git submodule
+              if [ -f sources ]; then
+                KERNEL_URL=$(grep -E "linux-.*\.tar\.(xz|gz|bz2)" sources | head -1 | awk '{print $2}' || echo "")
+                if [ -n "$KERNEL_URL" ]; then
+                  cd ..
+                  wget "$KERNEL_URL" -O kernel.tar.xz
+                  tar -xf kernel.tar.xz
+                  mv linux-* kernel-source || true
+                fi
+              fi
+              # Try git submodule
+              if [ ! -d kernel-source ] && [ -f .gitmodules ]; then
+                git submodule update --init --recursive || true
+                if [ -d linux ]; then
+                  cd ..
+                  mv kernel-rpm/linux kernel-source
+                fi
+              fi
+              cd ..
+            fi
+          fi
+          
+          # Fallback: clone mainline kernel if Fedora source not available
+          if [ ! -d kernel-source ] || [ ! -f kernel-source/Makefile ]; then
+            echo "Using mainline Linux kernel as fallback..."
+            if [ -d kernel-source ]; then
+              rm -rf kernel-source
+            fi
+            git clone --depth 1 --branch v6.1 https://github.com/torvalds/linux.git kernel-source
+          fi
+          
+          echo "Kernel source location:"
+          ls -la kernel-source/ | head -10
+
+      - name: Setup kernel configuration for ARM64 with ACPI
+        run: |
+          cd kernel-source
+          
+          # Set cross-compilation environment
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # Create or update .config file
+          if [ -f .config ]; then
+            echo "Using existing .config"
+          else
+            echo "Creating ARM64 defconfig..."
+            # Try different defconfig targets
+            if make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- help 2>/dev/null | grep -q defconfig; then
+              make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig || true
+            elif [ -f arch/arm64/configs/defconfig ]; then
+              cp arch/arm64/configs/defconfig .config
+            elif [ -f arch/arm64/configs/arm64_defconfig ]; then
+              cp arch/arm64/configs/arm64_defconfig .config
+            else
+              echo "No defconfig found, creating minimal config..."
+              printf "CONFIG_ARM64=y\nCONFIG_ACPI=y\nCONFIG_ARM64_ACPI_PARKING_PROTOCOL=y\nCONFIG_OF=y\n" > .config
+            fi
+          fi
+          
+          # Enable required ACPI options using sed
+          echo "Enabling ACPI configuration options..."
+          
+          # Function to set config option
+          set_config() {
+            local option=$1
+            local value=$2
+            if grep -q "^${option}=" .config 2>/dev/null; then
+              # Option exists, update it
+              sed -i "s|^${option}=.*|${option}=${value}|" .config
+            else
+              # Option doesn't exist, add it
+              echo "${option}=${value}" >> .config
+            fi
+          }
+          
+          # Enable ACPI options
+          set_config "CONFIG_ACPI" "y"
+          set_config "CONFIG_ARM64_ACPI_PARKING_PROTOCOL" "y"
+          set_config "CONFIG_ACPI_TABLE_UPGRADE" "y"
+          
+          # Enable EFI options
+          set_config "CONFIG_EFI" "y"
+          set_config "CONFIG_EFI_STUB" "y"
+          set_config "CONFIG_EFI_MIXED" "y"
+          
+          # Enable DMI support
+          set_config "CONFIG_DMI" "y"
+          
+          # Enable device tree support
+          set_config "CONFIG_OF" "y"
+          
+          # If scripts/config exists, use it for verification
+          if [ -f scripts/config ]; then
+            echo "Using scripts/config for additional configuration..."
+            ./scripts/config --file .config --enable CONFIG_ACPI || true
+            ./scripts/config --file .config --enable CONFIG_ARM64_ACPI_PARKING_PROTOCOL || true
+            ./scripts/config --file .config --enable CONFIG_ACPI_TABLE_UPGRADE || true
+            ./scripts/config --file .config --enable CONFIG_EFI || true
+            ./scripts/config --file .config --enable CONFIG_EFI_STUB || true
+            ./scripts/config --file .config --enable CONFIG_EFI_MIXED || true
+            ./scripts/config --file .config --enable CONFIG_DMI || true
+          fi
+          
+          # Verify the configuration
+          echo "Verifying configuration..."
+          echo "ACPI settings:"
+          grep -E "CONFIG_ACPI=|CONFIG_ARM64_ACPI_PARKING_PROTOCOL=|CONFIG_ACPI_TABLE_UPGRADE=" .config || echo "Warning: Some ACPI configs not found"
+          echo ""
+          echo "EFI settings:"
+          grep -E "CONFIG_EFI=|CONFIG_EFI_STUB=|CONFIG_EFI_MIXED=" .config || echo "Warning: Some EFI configs not found"
+          echo ""
+          echo "DMI settings:"
+          grep -E "CONFIG_DMI=" .config || echo "Warning: DMI config not found"
+          echo ""
+          echo "Architecture settings:"
+          grep -E "CONFIG_ARM64=" .config || true
+
+      - name: Build ARM64 kernel
+        run: |
+          cd kernel-source
+          
+          # Verify Makefile exists
+          if [ ! -f Makefile ]; then
+            echo "ERROR: Makefile not found. Cannot build kernel."
+            exit 1
+          fi
+          
+          # Set cross-compilation environment
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # Get number of CPU cores for parallel build
+          JOBS=$(nproc)
+          
+          # Verify .config exists
+          if [ ! -f .config ]; then
+            echo "ERROR: .config file not found."
+            exit 1
+          fi
+          
+          # Build the kernel
+          echo "Building ARM64 kernel with $JOBS parallel jobs..."
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS Image
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS modules
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS dtbs
+
+      - name: Download Fedora raw image
+        run: |
+          FEDORA_VERSION="${{ inputs.fedora_version }}"
+          echo "Downloading Fedora $FEDORA_VERSION raw image for aarch64..."
+          
+          # Fedora raw images are typically available at:
+          # https://download.fedoraproject.org/pub/fedora/linux/releases/$VERSION/Workstation/aarch64/images/
+          RAW_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/Fedora-Workstation-${FEDORA_VERSION}-1.${FEDORA_VERSION}.aarch64.raw.xz"
+          
+          echo "Attempting to download: $RAW_URL"
+          wget -O fedora-raw.xz "$RAW_URL" || {
+            echo "Primary URL failed, trying alternative locations..."
+            # Try alternative URL patterns
+            wget -O fedora-raw.xz "https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/Fedora-Workstation-${FEDORA_VERSION}-1.aarch64.raw.xz" || \
+            wget -O fedora-raw.xz "https://download.fedoraproject.org/pub/fedora-secondary/releases/${FEDORA_VERSION}/Workstation/aarch64/images/Fedora-Workstation-${FEDORA_VERSION}-1.aarch64.raw.xz" || {
+              echo "ERROR: Could not download Fedora raw image"
+              echo "Please check available images at: https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
+              exit 1
+            }
+          }
+          
+          echo "Extracting raw image..."
+          xz -d fedora-raw.xz || unxz fedora-raw.xz
+          ls -lh fedora-raw
+
+      - name: Prepare modified Fedora image
+        run: |
+          # Create a copy of the raw image to modify
+          cp fedora-raw fedora-raw-modified
+          
+          echo "Image prepared for modification"
+          ls -lh fedora-raw-modified
+
+      - name: Install custom kernel and modify GRUB using guestfish
+        run: |
+          cd kernel-source
+          
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          
+          # Get kernel version info
+          KERNEL_VERSION=$(make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- kernelversion | tr -d ' ')
+          KERNEL_RELEASE=$(make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- kernelrelease | tr -d ' ')
+          
+          echo "Kernel version: $KERNEL_VERSION"
+          echo "Kernel release: $KERNEL_RELEASE"
+          
+          # Create a script to modify the image using guestfish
+          cat > modify_image.sh << 'EOFSCRIPT'
+          #!/bin/bash
+          IMAGE=$1
+          KERNEL_RELEASE=$2
+          KERNEL_IMAGE=$3
+          
+          # Use guestfish to modify the image
+          guestfish --rw -a "$IMAGE" << 'GUESTFISH'
+          run
+          
+          # List partitions
+          list-partitions
+          
+          # Mount root filesystem (usually the last partition)
+          mount /dev/sda3 / || mount /dev/sda2 / || mount /dev/sda1 /
+          
+          # Copy kernel image
+          copy-in "$KERNEL_IMAGE" /boot/
+          
+          # Find and modify GRUB config
+          sh "find /boot -name grub.cfg -o -name grub2.cfg | head -1" > /tmp/grubcfg
+          GRUB_CFG=$(cat /tmp/grubcfg)
+          
+          if [ -n "$GRUB_CFG" ]; then
+            # Read current GRUB config
+            read-file "$GRUB_CFG" > /tmp/grub_content
+            
+            # Modify to disable secure boot
+            sed -i 's/set check_signatures=enforce/set check_signatures=no/g' /tmp/grub_content
+            sed -i 's/set check_signatures=yes/set check_signatures=no/g' /tmp/grub_content
+            
+            # Write back
+            write-file "$GRUB_CFG" /tmp/grub_content
+          fi
+          
+          # Modify GRUB environment if it exists
+          if [ -f /boot/efi/EFI/fedora/grubenv ]; then
+            read-file /boot/efi/EFI/fedora/grubenv > /tmp/grubenv
+            sed -i 's/check_signatures=enforce/check_signatures=no/g' /tmp/grubenv
+            write-file /boot/efi/EFI/fedora/grubenv /tmp/grubenv
+          fi
+          
+          umount-all
+          GUESTFISH
+          EOFSCRIPT
+          
+          chmod +x modify_image.sh
+          
+          # Alternative: Use simpler approach with virt-customize if available
+          # For now, we'll use a manual mount approach
+          echo "Preparing to modify image..."
+          
+          # Create mount script that will be run with proper privileges
+          cat > mount_and_modify.sh << 'MOUNTSCRIPT'
+          #!/bin/bash
+          set -e
+          
+          IMAGE="$1"
+          KERNEL_IMAGE="$2"
+          KERNEL_RELEASE="$3"
+          
+          # Setup loop device
+          LOOP_DEV=$(losetup --find --show --partscan "$IMAGE")
+          echo "Loop device: $LOOP_DEV"
+          
+          # Wait for device nodes
+          sleep 2
+          
+          # Find root partition (usually the largest ext4 partition)
+          ROOT_PART=""
+          for part in ${LOOP_DEV}p*; do
+            if [ -b "$part" ]; then
+              FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || echo "")
+              if [ "$FSTYPE" = "ext4" ] || [ "$FSTYPE" = "xfs" ]; then
+                ROOT_PART="$part"
+                break
+              fi
+            fi
+          done
+          
+          if [ -z "$ROOT_PART" ]; then
+            # Fallback: use last partition
+            ROOT_PART=$(ls ${LOOP_DEV}p* 2>/dev/null | tail -1)
+          fi
+          
+          if [ -z "$ROOT_PART" ] || [ ! -b "$ROOT_PART" ]; then
+            echo "ERROR: Could not find root partition"
+            losetup -d "$LOOP_DEV" || true
+            exit 1
+          fi
+          
+          echo "Root partition: $ROOT_PART"
+          
+          # Mount root
+          mkdir -p /mnt/fedora
+          mount "$ROOT_PART" /mnt/fedora
+          
+          # Copy kernel
+          mkdir -p /mnt/fedora/boot
+          cp "$KERNEL_IMAGE" /mnt/fedora/boot/vmlinuz-${KERNEL_RELEASE}
+          
+          # Modify GRUB config
+          for grubcfg in /mnt/fedora/boot/efi/EFI/fedora/grub.cfg /mnt/fedora/boot/grub2/grub.cfg /mnt/fedora/boot/grub/grub.cfg; do
+            if [ -f "$grubcfg" ]; then
+              echo "Modifying: $grubcfg"
+              sed -i 's/set check_signatures=enforce/set check_signatures=no/g' "$grubcfg"
+              sed -i 's/set check_signatures=yes/set check_signatures=no/g' "$grubcfg"
+              # Add disable secure boot at the beginning of each menuentry
+              sed -i '/^menuentry/a\  set check_signatures=no' "$grubcfg"
+            fi
+          done
+          
+          # Modify GRUB environment
+          for grubenv in /mnt/fedora/boot/efi/EFI/fedora/grubenv /mnt/fedora/boot/grub2/grubenv; do
+            if [ -f "$grubenv" ]; then
+              echo "Modifying: $grubenv"
+              sed -i 's/check_signatures=enforce/check_signatures=no/g' "$grubenv" || true
+            fi
+          done
+          
+          # Unmount
+          umount /mnt/fedora
+          losetup -d "$LOOP_DEV"
+          MOUNTSCRIPT
+          
+          chmod +x mount_and_modify.sh
+          
+          # Run the modification script
+          ./mount_and_modify.sh ../fedora-raw-modified arch/arm64/boot/Image "$KERNEL_RELEASE"
+
+      - name: Cleanup and package
+        run: |
+          # Ensure no mounts are left
+          umount /mnt/fedora 2>/dev/null || true
+          
+          # Clean up any loop devices
+          for loop in $(losetup -j fedora-raw-modified 2>/dev/null | cut -d: -f1); do
+            losetup -d "$loop" 2>/dev/null || true
+          done
+          
+          # Compress the modified image
+          echo "Compressing modified image..."
+          xz -9 fedora-raw-modified
+          
+          echo "Modified image ready: fedora-raw-modified.xz"
+          ls -lh fedora-raw-modified.xz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-aarch64-custom-kernel
+          path: |
+            fedora-raw-modified.xz
+            kernel-source/arch/arm64/boot/Image
+            kernel-source/.config
+          retention-days: 7
+
