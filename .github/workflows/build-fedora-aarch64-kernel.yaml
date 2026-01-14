@@ -221,21 +221,83 @@ jobs:
           FEDORA_VERSION="${{ inputs.fedora_version }}"
           echo "Downloading Fedora $FEDORA_VERSION raw image for aarch64..."
           
-          # Fedora raw images are typically available at:
-          # https://download.fedoraproject.org/pub/fedora/linux/releases/$VERSION/Workstation/aarch64/images/
-          RAW_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/Fedora-Workstation-${FEDORA_VERSION}-1.${FEDORA_VERSION}.aarch64.raw.xz"
+          # Base URL for Fedora images
+          BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
+          SECONDARY_URL="https://download.fedoraproject.org/pub/fedora-secondary/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
           
-          echo "Attempting to download: $RAW_URL"
-          wget -O fedora-raw.xz "$RAW_URL" || {
-            echo "Primary URL failed, trying alternative locations..."
-            # Try alternative URL patterns
-            wget -O fedora-raw.xz "https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/Fedora-Workstation-${FEDORA_VERSION}-1.aarch64.raw.xz" || \
-            wget -O fedora-raw.xz "https://download.fedoraproject.org/pub/fedora-secondary/releases/${FEDORA_VERSION}/Workstation/aarch64/images/Fedora-Workstation-${FEDORA_VERSION}-1.aarch64.raw.xz" || {
-              echo "ERROR: Could not download Fedora raw image"
-              echo "Please check available images at: https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
-              exit 1
-            }
+          # Try to discover the actual filename by checking available files
+          echo "Attempting to discover available raw images..."
+          
+          # Function to try downloading with a specific filename pattern
+          try_download() {
+            local url=$1
+            local filename=$2
+            echo "Trying: $url$filename"
+            if wget --spider "$url$filename" 2>&1 | grep -q "200 OK"; then
+              echo "Found: $filename"
+              wget -O fedora-raw.xz "$url$filename"
+              return 0
+            fi
+            return 1
           }
+          
+          # Try different filename patterns
+          DOWNLOADED=0
+          
+          # Pattern 1: Fedora-Workstation-VERSION-RELEASE.VERSION.aarch64.raw.xz
+          for release in 1 2 3; do
+            for pattern in "${FEDORA_VERSION}-${release}.${FEDORA_VERSION}" "${FEDORA_VERSION}-${release}"; do
+              if try_download "$BASE_URL" "Fedora-Workstation-${pattern}.aarch64.raw.xz"; then
+                DOWNLOADED=1
+                break 2
+              fi
+            done
+          done
+          
+          # Pattern 2: Try with different release number formats
+          if [ $DOWNLOADED -eq 0 ]; then
+            for pattern in "${FEDORA_VERSION}-1" "${FEDORA_VERSION}-1.${FEDORA_VERSION}" "Rawhide-${FEDORA_VERSION}"; do
+              if try_download "$BASE_URL" "Fedora-Workstation-${pattern}.aarch64.raw.xz"; then
+                DOWNLOADED=1
+                break
+              fi
+            done
+          fi
+          
+          # Try secondary URL
+          if [ $DOWNLOADED -eq 0 ]; then
+            echo "Trying secondary URL..."
+            for release in 1 2 3; do
+              for pattern in "${FEDORA_VERSION}-${release}.${FEDORA_VERSION}" "${FEDORA_VERSION}-${release}"; do
+                if try_download "$SECONDARY_URL" "Fedora-Workstation-${pattern}.aarch64.raw.xz"; then
+                  DOWNLOADED=1
+                  break 2
+                fi
+              done
+            done
+          fi
+          
+          # Try to list directory and find any .raw.xz file
+          if [ $DOWNLOADED -eq 0 ]; then
+            echo "Attempting to list directory contents..."
+            # Try to get directory listing (may not work on all servers)
+            LISTING=$(curl -s -L "$BASE_URL" 2>/dev/null | grep -oP 'href="\K[^"]*\.raw\.xz' | head -1 || echo "")
+            if [ -n "$LISTING" ]; then
+              echo "Found file in listing: $LISTING"
+              if wget -O fedora-raw.xz "$BASE_URL$LISTING"; then
+                DOWNLOADED=1
+              fi
+            fi
+          fi
+          
+          if [ $DOWNLOADED -eq 0 ]; then
+            echo "ERROR: Could not download Fedora raw image"
+            echo "Tried multiple patterns and locations"
+            echo "Please check available images at: $BASE_URL"
+            echo ""
+            echo "You can also manually specify the image URL by modifying the workflow"
+            exit 1
+          fi
           
           echo "Extracting raw image..."
           xz -d fedora-raw.xz || unxz fedora-raw.xz
