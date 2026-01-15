@@ -236,8 +236,8 @@ jobs:
           fi
           
           # Base URL for Fedora images
-          BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
-          SECONDARY_URL="https://download.fedoraproject.org/pub/fedora-secondary/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
+          BASE_URL="https://mirror.servaxnet.com/fedora/linux/releases/${FEDORA_VERSION}/Cloud/aarch64/images/"
+          SECONDARY_URL="https://mirror.servaxnet.com/fedora-secondary/releases/${FEDORA_VERSION}/Cloud/aarch64/images/"
           
           # Try to discover the actual filename by checking available files
           echo "Attempting to discover available raw images..."
