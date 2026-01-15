@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: debian:12
+      options: --privileged
 
     steps:
       - name: Install build dependencies
@@ -46,7 +47,9 @@ jobs:
             e2fsprogs \
             qemu-utils \
             libguestfs-tools \
-            guestfs-tools
+            guestfs-tools \
+            kpartx \
+            device-mapper
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -308,6 +311,19 @@ jobs:
           # Create a copy of the raw image to modify
           cp fedora-raw fedora-raw-modified
           
+          # Create loop devices if they don't exist
+          echo "Setting up loop devices..."
+          # Check if we're in a container that needs loop devices
+          if [ ! -e /dev/loop0 ]; then
+            echo "Creating loop devices..."
+            for i in 0 1 2 3 4 5 6 7; do
+              mknod -m 0660 /dev/loop$i b 7 $i 2>/dev/null || true
+            done
+          fi
+          
+          # Verify loop devices are available
+          ls -la /dev/loop* | head -5
+          
           echo "Image prepared for modification"
           ls -lh fedora-raw-modified
 
@@ -387,8 +403,74 @@ jobs:
           KERNEL_IMAGE="$2"
           KERNEL_RELEASE="$3"
           
-          # Setup loop device
-          LOOP_DEV=$(losetup --find --show --partscan "$IMAGE")
+          # Ensure loop devices exist
+          for i in 0 1 2 3 4 5 6 7; do
+            if [ ! -e /dev/loop$i ]; then
+              mknod -m 0660 /dev/loop$i b 7 $i 2>/dev/null || true
+            fi
+          done
+          
+          # Try to setup loop device
+          LOOP_DEV=""
+          for i in 0 1 2 3 4 5 6 7; do
+            if losetup /dev/loop$i "$IMAGE" 2>/dev/null; then
+              LOOP_DEV=/dev/loop$i
+              break
+            fi
+          done
+          
+          if [ -z "$LOOP_DEV" ]; then
+            # Try with --find
+            LOOP_DEV=$(losetup --find --show --partscan "$IMAGE" 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$LOOP_DEV" ]; then
+            echo "ERROR: Could not setup loop device"
+            echo "Trying alternative method with kpartx..."
+            # Try using kpartx if available
+            if command -v kpartx >/dev/null 2>&1; then
+              kpartx -av "$IMAGE"
+              sleep 2
+              # Find the root partition
+              ROOT_PART=$(dmsetup ls | grep loop | head -1 | awk '{print "/dev/mapper/"$1}' || echo "")
+              if [ -n "$ROOT_PART" ] && [ -b "$ROOT_PART" ]; then
+                echo "Using kpartx partition: $ROOT_PART"
+                mkdir -p /mnt/fedora
+                mount "$ROOT_PART" /mnt/fedora
+                
+                # Copy kernel
+                mkdir -p /mnt/fedora/boot
+                cp "$KERNEL_IMAGE" /mnt/fedora/boot/vmlinuz-${KERNEL_RELEASE}
+                
+                # Modify GRUB config
+                for grubcfg in /mnt/fedora/boot/efi/EFI/fedora/grub.cfg /mnt/fedora/boot/grub2/grub.cfg /mnt/fedora/boot/grub/grub.cfg; do
+                  if [ -f "$grubcfg" ]; then
+                    echo "Modifying: $grubcfg"
+                    sed -i 's/set check_signatures=enforce/set check_signatures=no/g' "$grubcfg"
+                    sed -i 's/set check_signatures=yes/set check_signatures=no/g' "$grubcfg"
+                    sed -i '/^menuentry/a\  set check_signatures=no' "$grubcfg"
+                  fi
+                done
+                
+                # Modify GRUB environment
+                for grubenv in /mnt/fedora/boot/efi/EFI/fedora/grubenv /mnt/fedora/boot/grub2/grubenv; do
+                  if [ -f "$grubenv" ]; then
+                    echo "Modifying: $grubenv"
+                    sed -i 's/check_signatures=enforce/check_signatures=no/g' "$grubenv" || true
+                  fi
+                done
+                
+                umount /mnt/fedora
+                kpartx -d "$IMAGE"
+                exit 0
+              fi
+            fi
+            
+            echo "ERROR: Could not mount image. Loop devices may not be available in this container."
+            echo "Consider using a privileged container or an alternative mounting method."
+            exit 1
+          fi
+          
           echo "Loop device: $LOOP_DEV"
           
           # Wait for device nodes
@@ -448,7 +530,7 @@ jobs:
           
           # Unmount
           umount /mnt/fedora
-          losetup -d "$LOOP_DEV"
+          losetup -d "$LOOP_DEV" || true
           MOUNTSCRIPT
           
           chmod +x mount_and_modify.sh
