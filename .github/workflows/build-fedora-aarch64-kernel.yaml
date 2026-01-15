@@ -49,7 +49,9 @@ jobs:
             libguestfs-tools \
             guestfs-tools \
             kpartx \
-            dmsetup
+            dmsetup \
+            parted \
+            fdisk
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -494,28 +496,81 @@ jobs:
           
           echo "Loop device: $LOOP_DEV"
           
-          # Wait for device nodes
+          # Wait for device nodes to be created
+          sleep 3
+          
+          # Force kernel to reread partition table
+          partprobe "$LOOP_DEV" 2>/dev/null || true
           sleep 2
           
-          # Find root partition (usually the largest ext4 partition)
+          # List all available partitions
+          echo "Available partitions:"
+          ls -la ${LOOP_DEV}p* 2>/dev/null || echo "No p* partitions found"
+          ls -la ${LOOP_DEV}* 2>/dev/null | head -10
+          
+          # Try to read partition table
+          echo "Partition table:"
+          fdisk -l "$LOOP_DEV" 2>/dev/null || parted "$LOOP_DEV" print 2>/dev/null || true
+          
+          # Find root partition (usually the largest ext4/xfs partition)
           ROOT_PART=""
-          for part in ${LOOP_DEV}p*; do
+          
+          # Try different partition naming schemes
+          for part in ${LOOP_DEV}p3 ${LOOP_DEV}p2 ${LOOP_DEV}p1 ${LOOP_DEV}3 ${LOOP_DEV}2 ${LOOP_DEV}1; do
             if [ -b "$part" ]; then
+              echo "Checking partition: $part"
               FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || echo "")
-              if [ "$FSTYPE" = "ext4" ] || [ "$FSTYPE" = "xfs" ]; then
+              echo "  Filesystem type: $FSTYPE"
+              if [ "$FSTYPE" = "ext4" ] || [ "$FSTYPE" = "xfs" ] || [ "$FSTYPE" = "btrfs" ]; then
                 ROOT_PART="$part"
+                echo "  Found root partition: $ROOT_PART"
                 break
               fi
             fi
           done
           
+          # If still not found, try all partitions
           if [ -z "$ROOT_PART" ]; then
-            # Fallback: use last partition
-            ROOT_PART=$(ls ${LOOP_DEV}p* 2>/dev/null | tail -1)
+            echo "Trying all partitions..."
+            for part in ${LOOP_DEV}p* ${LOOP_DEV}*; do
+              if [ -b "$part" ] && [ "$part" != "$LOOP_DEV" ]; then
+                echo "Checking: $part"
+                FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || echo "")
+                SIZE=$(blockdev --getsize64 "$part" 2>/dev/null || echo "0")
+                echo "  Type: $FSTYPE, Size: $SIZE"
+                # Prefer larger ext4/xfs partitions (likely root)
+                if [ "$FSTYPE" = "ext4" ] || [ "$FSTYPE" = "xfs" ] || [ "$FSTYPE" = "btrfs" ]; then
+                  if [ -z "$ROOT_PART" ] || [ "$SIZE" -gt "$(blockdev --getsize64 "$ROOT_PART" 2>/dev/null || echo 0)" ]; then
+                    ROOT_PART="$part"
+                    echo "  Selected as root: $ROOT_PART"
+                  fi
+                fi
+              fi
+            done
+          fi
+          
+          # Fallback: use the largest partition
+          if [ -z "$ROOT_PART" ]; then
+            echo "Fallback: using largest partition..."
+            LARGEST_SIZE=0
+            for part in ${LOOP_DEV}p* ${LOOP_DEV}*; do
+              if [ -b "$part" ] && [ "$part" != "$LOOP_DEV" ]; then
+                SIZE=$(blockdev --getsize64 "$part" 2>/dev/null || echo "0")
+                if [ "$SIZE" -gt "$LARGEST_SIZE" ]; then
+                  LARGEST_SIZE=$SIZE
+                  ROOT_PART="$part"
+                fi
+              fi
+            done
           fi
           
           if [ -z "$ROOT_PART" ] || [ ! -b "$ROOT_PART" ]; then
             echo "ERROR: Could not find root partition"
+            echo "Loop device: $LOOP_DEV"
+            echo "Available devices:"
+            ls -la /dev/loop* 2>/dev/null || true
+            echo "Partition info:"
+            fdisk -l "$LOOP_DEV" 2>/dev/null || parted "$LOOP_DEV" print 2>/dev/null || true
             losetup -d "$LOOP_DEV" || true
             exit 1
           fi
