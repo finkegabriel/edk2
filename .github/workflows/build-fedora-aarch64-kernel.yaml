@@ -426,122 +426,51 @@ jobs:
           KERNEL_IMAGE="$2"
           KERNEL_RELEASE="$3"
           
-          # Ensure loop devices exist
-          for i in 0 1 2 3 4 5 6 7; do
-            if [ ! -e /dev/loop$i ]; then
-              mknod -m 0660 /dev/loop$i b 7 $i 2>/dev/null || true
-            fi
-          done
-          
-          # Try to setup loop device
-          LOOP_DEV=""
-          for i in 0 1 2 3 4 5 6 7; do
-            if losetup /dev/loop$i "$IMAGE" 2>/dev/null; then
-              LOOP_DEV=/dev/loop$i
-              break
-            fi
-          done
-          
-          if [ -z "$LOOP_DEV" ]; then
-            # Try with --find
-            LOOP_DEV=$(losetup --find --show --partscan "$IMAGE" 2>/dev/null || echo "")
-          fi
-          
-          if [ -z "$LOOP_DEV" ]; then
-            echo "ERROR: Could not setup loop device"
-            echo "Trying alternative method with kpartx..."
-            # Try using kpartx if available
-            if command -v kpartx >/dev/null 2>&1; then
-              kpartx -av "$IMAGE"
-              sleep 2
-              # Find the root partition
-              ROOT_PART=$(dmsetup ls | grep loop | head -1 | awk '{print "/dev/mapper/"$1}' || echo "")
-              if [ -n "$ROOT_PART" ] && [ -b "$ROOT_PART" ]; then
-                echo "Using kpartx partition: $ROOT_PART"
-                mkdir -p /mnt/fedora
-                mount "$ROOT_PART" /mnt/fedora
-                
-                # Copy kernel
-                mkdir -p /mnt/fedora/boot
-                cp "$KERNEL_IMAGE" /mnt/fedora/boot/vmlinuz-${KERNEL_RELEASE}
-                
-                # Modify GRUB config
-                for grubcfg in /mnt/fedora/boot/efi/EFI/fedora/grub.cfg /mnt/fedora/boot/grub2/grub.cfg /mnt/fedora/boot/grub/grub.cfg; do
-                  if [ -f "$grubcfg" ]; then
-                    echo "Modifying: $grubcfg"
-                    sed -i 's/set check_signatures=enforce/set check_signatures=no/g' "$grubcfg"
-                    sed -i 's/set check_signatures=yes/set check_signatures=no/g' "$grubcfg"
-                    sed -i '/^menuentry/a\  set check_signatures=no' "$grubcfg"
-                  fi
-                done
-                
-                # Modify GRUB environment
-                for grubenv in /mnt/fedora/boot/efi/EFI/fedora/grubenv /mnt/fedora/boot/grub2/grubenv; do
-                  if [ -f "$grubenv" ]; then
-                    echo "Modifying: $grubenv"
-                    sed -i 's/check_signatures=enforce/check_signatures=no/g' "$grubenv" || true
-                  fi
-                done
-                
-                umount /mnt/fedora
-                kpartx -d "$IMAGE"
-                exit 0
-              fi
-            fi
-            
-            echo "ERROR: Could not mount image. Loop devices may not be available in this container."
-            echo "Consider using a privileged container or an alternative mounting method."
+          # Use kpartx directly - more reliable in containers
+          echo "Using kpartx to map partitions..."
+          if ! command -v kpartx >/dev/null 2>&1; then
+            echo "ERROR: kpartx not available"
             exit 1
           fi
           
-          echo "Loop device: $LOOP_DEV"
-          
-          # Wait for device nodes to be created
-          sleep 3
-          
-          # Force kernel to reread partition table
-          partprobe "$LOOP_DEV" 2>/dev/null || true
+          # Map partitions using kpartx
+          kpartx -av "$IMAGE"
           sleep 2
           
-          # List all available partitions
-          echo "Available partitions:"
-          ls -la ${LOOP_DEV}p* 2>/dev/null || echo "No p* partitions found"
-          ls -la ${LOOP_DEV}* 2>/dev/null | head -10
+          # Find all mapped partitions
+          echo "Mapped partitions:"
+          dmsetup ls | grep loop || true
           
-          # Try to read partition table
-          echo "Partition table:"
-          fdisk -l "$LOOP_DEV" 2>/dev/null || parted "$LOOP_DEV" print 2>/dev/null || true
+          # Get the loop device name from kpartx output
+          LOOP_BASE=$(dmsetup ls | grep loop | head -1 | awk '{print $1}' | sed 's/-p[0-9]*$//' || echo "")
           
-          # Find root partition (usually the largest ext4/xfs partition)
+          # Try to find root partition (usually partition 3, the largest)
           ROOT_PART=""
           
-          # Try different partition naming schemes
-          for part in ${LOOP_DEV}p3 ${LOOP_DEV}p2 ${LOOP_DEV}p1 ${LOOP_DEV}3 ${LOOP_DEV}2 ${LOOP_DEV}1; do
-            if [ -b "$part" ]; then
-              echo "Checking partition: $part"
-              FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || echo "")
-              echo "  Filesystem type: $FSTYPE"
+          # Check partition 3 first (usually root)
+          for mapper_dev in /dev/mapper/${LOOP_BASE}-p3 /dev/mapper/loop*p3; do
+            if [ -b "$mapper_dev" ] 2>/dev/null; then
+              FSTYPE=$(blkid -s TYPE -o value "$mapper_dev" 2>/dev/null || echo "")
               if [ "$FSTYPE" = "ext4" ] || [ "$FSTYPE" = "xfs" ] || [ "$FSTYPE" = "btrfs" ]; then
-                ROOT_PART="$part"
-                echo "  Found root partition: $ROOT_PART"
+                ROOT_PART="$mapper_dev"
+                echo "Found root partition: $ROOT_PART (type: $FSTYPE)"
                 break
               fi
             fi
           done
           
-          # If still not found, try all partitions
+          # If not found, try all partitions
           if [ -z "$ROOT_PART" ]; then
-            echo "Trying all partitions..."
-            for part in ${LOOP_DEV}p* ${LOOP_DEV}*; do
-              if [ -b "$part" ] && [ "$part" != "$LOOP_DEV" ]; then
-                echo "Checking: $part"
-                FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || echo "")
-                SIZE=$(blockdev --getsize64 "$part" 2>/dev/null || echo "0")
-                echo "  Type: $FSTYPE, Size: $SIZE"
+            echo "Searching all partitions..."
+            for mapper_dev in /dev/mapper/${LOOP_BASE}-p* /dev/mapper/loop*p*; do
+              if [ -b "$mapper_dev" ] 2>/dev/null; then
+                FSTYPE=$(blkid -s TYPE -o value "$mapper_dev" 2>/dev/null || echo "")
+                SIZE=$(blockdev --getsize64 "$mapper_dev" 2>/dev/null || echo "0")
+                echo "  Checking: $mapper_dev (type: $FSTYPE, size: $SIZE)"
                 # Prefer larger ext4/xfs partitions (likely root)
                 if [ "$FSTYPE" = "ext4" ] || [ "$FSTYPE" = "xfs" ] || [ "$FSTYPE" = "btrfs" ]; then
                   if [ -z "$ROOT_PART" ] || [ "$SIZE" -gt "$(blockdev --getsize64 "$ROOT_PART" 2>/dev/null || echo 0)" ]; then
-                    ROOT_PART="$part"
+                    ROOT_PART="$mapper_dev"
                     echo "  Selected as root: $ROOT_PART"
                   fi
                 fi
@@ -549,16 +478,16 @@ jobs:
             done
           fi
           
-          # Fallback: use the largest partition
+          # Fallback: use largest partition
           if [ -z "$ROOT_PART" ]; then
             echo "Fallback: using largest partition..."
             LARGEST_SIZE=0
-            for part in ${LOOP_DEV}p* ${LOOP_DEV}*; do
-              if [ -b "$part" ] && [ "$part" != "$LOOP_DEV" ]; then
-                SIZE=$(blockdev --getsize64 "$part" 2>/dev/null || echo "0")
+            for mapper_dev in /dev/mapper/${LOOP_BASE}-p* /dev/mapper/loop*p*; do
+              if [ -b "$mapper_dev" ] 2>/dev/null; then
+                SIZE=$(blockdev --getsize64 "$mapper_dev" 2>/dev/null || echo "0")
                 if [ "$SIZE" -gt "$LARGEST_SIZE" ]; then
                   LARGEST_SIZE=$SIZE
-                  ROOT_PART="$part"
+                  ROOT_PART="$mapper_dev"
                 fi
               fi
             done
@@ -566,16 +495,14 @@ jobs:
           
           if [ -z "$ROOT_PART" ] || [ ! -b "$ROOT_PART" ]; then
             echo "ERROR: Could not find root partition"
-            echo "Loop device: $LOOP_DEV"
-            echo "Available devices:"
-            ls -la /dev/loop* 2>/dev/null || true
-            echo "Partition info:"
-            fdisk -l "$LOOP_DEV" 2>/dev/null || parted "$LOOP_DEV" print 2>/dev/null || true
-            losetup -d "$LOOP_DEV" || true
+            echo "Available mapper devices:"
+            ls -la /dev/mapper/loop* 2>/dev/null || true
+            dmsetup ls | grep loop || true
+            kpartx -d "$IMAGE" || true
             exit 1
           fi
           
-          echo "Root partition: $ROOT_PART"
+          echo "Using root partition: $ROOT_PART"
           
           # Mount root
           mkdir -p /mnt/fedora
@@ -604,9 +531,9 @@ jobs:
             fi
           done
           
-          # Unmount
+          # Unmount and cleanup
           umount /mnt/fedora
-          losetup -d "$LOOP_DEV" || true
+          kpartx -d "$IMAGE" || true
           MOUNTSCRIPT
           
           chmod +x mount_and_modify.sh
