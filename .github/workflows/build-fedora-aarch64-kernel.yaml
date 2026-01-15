@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       fedora_version:
-        description: 'Fedora version (e.g., 43)'
+        description: 'Fedora version (e.g., 40, 41, 42). Note: 43 may not be released yet.'
         required: false
         type: string
-        default: '43'
+        default: '40'
 
 jobs:
   build-fedora-kernel:
@@ -224,6 +224,17 @@ jobs:
           FEDORA_VERSION="${{ inputs.fedora_version }}"
           echo "Downloading Fedora $FEDORA_VERSION raw image for aarch64..."
           
+          # Check if version is likely valid (Fedora typically releases versions 30-42 as of 2024)
+          # Note: This is a rough check, adjust as needed
+          VERSION_NUM=$(echo "$FEDORA_VERSION" | grep -oE '^[0-9]+$' || echo "")
+          if [ -n "$VERSION_NUM" ]; then
+            if [ "$VERSION_NUM" -gt 50 ] || [ "$VERSION_NUM" -lt 30 ]; then
+              echo "WARNING: Fedora version $FEDORA_VERSION may not exist"
+              echo "Common Fedora versions: 38, 39, 40, 41, 42"
+              echo "Continuing anyway..."
+            fi
+          fi
+          
           # Base URL for Fedora images
           BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
           SECONDARY_URL="https://download.fedoraproject.org/pub/fedora-secondary/releases/${FEDORA_VERSION}/Workstation/aarch64/images/"
@@ -236,7 +247,7 @@ jobs:
             local url=$1
             local filename=$2
             echo "Trying: $url$filename"
-            if wget --spider "$url$filename" 2>&1 | grep -q "200 OK"; then
+            if wget --spider --timeout=5 "$url$filename" 2>&1 | grep -q "200 OK"; then
               echo "Found: $filename"
               wget -O fedora-raw.xz "$url$filename"
               return 0
@@ -248,7 +259,7 @@ jobs:
           DOWNLOADED=0
           
           # Pattern 1: Fedora-Workstation-VERSION-RELEASE.VERSION.aarch64.raw.xz
-          for release in 1 2 3; do
+          for release in 1 2 3 4 5; do
             for pattern in "${FEDORA_VERSION}-${release}.${FEDORA_VERSION}" "${FEDORA_VERSION}-${release}"; do
               if try_download "$BASE_URL" "Fedora-Workstation-${pattern}.aarch64.raw.xz"; then
                 DOWNLOADED=1
@@ -270,7 +281,7 @@ jobs:
           # Try secondary URL
           if [ $DOWNLOADED -eq 0 ]; then
             echo "Trying secondary URL..."
-            for release in 1 2 3; do
+            for release in 1 2 3 4 5; do
               for pattern in "${FEDORA_VERSION}-${release}.${FEDORA_VERSION}" "${FEDORA_VERSION}-${release}"; do
                 if try_download "$SECONDARY_URL" "Fedora-Workstation-${pattern}.aarch64.raw.xz"; then
                   DOWNLOADED=1
@@ -284,7 +295,7 @@ jobs:
           if [ $DOWNLOADED -eq 0 ]; then
             echo "Attempting to list directory contents..."
             # Try to get directory listing (may not work on all servers)
-            LISTING=$(curl -s -L "$BASE_URL" 2>/dev/null | grep -oP 'href="\K[^"]*\.raw\.xz' | head -1 || echo "")
+            LISTING=$(curl -s -L --max-time 10 "$BASE_URL" 2>/dev/null | grep -oP 'href="\K[^"]*\.raw\.xz' | head -1 || echo "")
             if [ -n "$LISTING" ]; then
               echo "Found file in listing: $LISTING"
               if wget -O fedora-raw.xz "$BASE_URL$LISTING"; then
@@ -293,12 +304,22 @@ jobs:
             fi
           fi
           
+          # Try checking what versions are actually available
           if [ $DOWNLOADED -eq 0 ]; then
-            echo "ERROR: Could not download Fedora raw image"
-            echo "Tried multiple patterns and locations"
-            echo "Please check available images at: $BASE_URL"
             echo ""
-            echo "You can also manually specify the image URL by modifying the workflow"
+            echo "ERROR: Could not download Fedora $FEDORA_VERSION raw image"
+            echo "Tried multiple patterns and locations"
+            echo ""
+            echo "Fedora $FEDORA_VERSION may not be released yet."
+            echo "Please try a valid Fedora version (e.g., 38, 39, 40, 41, 42)"
+            echo ""
+            echo "You can check available versions at:"
+            echo "  https://download.fedoraproject.org/pub/fedora/linux/releases/"
+            echo ""
+            echo "Or use workflow_dispatch with a valid fedora_version input"
+            echo ""
+            echo "To use a different version, trigger the workflow manually and specify:"
+            echo "  fedora_version: 40  (or another valid version)"
             exit 1
           fi
           
