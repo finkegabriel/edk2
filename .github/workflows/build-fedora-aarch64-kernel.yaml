@@ -49,7 +49,7 @@ jobs:
             libguestfs-tools \
             guestfs-tools \
             kpartx \
-            device-mapper
+            dmsetup
 
       - name: Checkout repository
         uses: actions/checkout@v4
