@@ -254,6 +254,18 @@ jobs:
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS Image
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS modules
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS dtbs
+          
+          # Build specific DTB for sdm850-samsung-w737
+          echo "Building sdm850-samsung-w737.dtb..."
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb
+          
+          # Verify DTB was built
+          if [ -f arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb ]; then
+            echo "DTB built successfully: arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb"
+            ls -lh arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb
+          else
+            echo "WARNING: DTB file not found after build"
+          fi
 
       - name: Download Fedora raw image
         run: |
@@ -460,6 +472,7 @@ jobs:
           KERNEL_IMAGE="$2"
           KERNEL_RELEASE="$3"
           KERNEL_SOURCE="$4"
+          DTB_FILE="$5"
           
           # Use kpartx directly - more reliable in containers
           echo "Using kpartx to map partitions..."
@@ -547,6 +560,16 @@ jobs:
           mkdir -p /mnt/fedora/boot
           cp "$KERNEL_IMAGE" /mnt/fedora/boot/vmlinuz-${KERNEL_RELEASE}
           
+          # Copy DTB file if provided
+          if [ -n "$DTB_FILE" ] && [ -f "$DTB_FILE" ]; then
+            echo "Copying DTB file: $DTB_FILE"
+            mkdir -p /mnt/fedora/boot/dtb
+            cp "$DTB_FILE" /mnt/fedora/boot/dtb/
+            echo "DTB copied to /mnt/fedora/boot/dtb/$(basename $DTB_FILE)"
+          else
+            echo "Warning: DTB file not provided or not found: $DTB_FILE"
+          fi
+          
           # Modify GRUB config
           for grubcfg in /mnt/fedora/boot/efi/EFI/fedora/grub.cfg /mnt/fedora/boot/grub2/grub.cfg /mnt/fedora/boot/grub/grub.cfg; do
             if [ -f "$grubcfg" ]; then
@@ -584,7 +607,7 @@ jobs:
           chmod +x mount_and_modify.sh
           
           # Run the modification script
-          ./mount_and_modify.sh ../fedora-raw-modified arch/arm64/boot/Image "$KERNEL_RELEASE" "$(pwd)"
+          ./mount_and_modify.sh ../fedora-raw-modified arch/arm64/boot/Image "$KERNEL_RELEASE" "$(pwd)" arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb
 
       - name: Cleanup and package
         run: |
@@ -610,6 +633,7 @@ jobs:
           path: |
             fedora-raw-modified.xz
             kernel-source/arch/arm64/boot/Image
+            kernel-source/arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb
             kernel-source/.config
           retention-days: 7
 
