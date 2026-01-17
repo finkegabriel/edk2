@@ -130,7 +130,7 @@ jobs:
               cp arch/arm64/configs/arm64_defconfig .config
             else
               echo "No defconfig found, creating minimal config..."
-              printf "CONFIG_ARM64=y\nCONFIG_ACPI=y\nCONFIG_ARM64_ACPI_PARKING_PROTOCOL=y\nCONFIG_OF=y\n" > .config
+              printf "CONFIG_ARM64=y\nCONFIG_ACPI=n\nCONFIG_ARM64_ACPI_PARKING_PROTOCOL=n\nCONFIG_OF=y\nCONFIG_OF_FLATTREE=y\nCONFIG_OF_EARLY_FLATTREE=y\nCONFIG_ARCH_QCOM=y\nCONFIG_MSM_GCC_8998=y\nCONFIG_QCOM_SMEM=y\nCONFIG_QCOM_SMD=y\nCONFIG_QCOM_SCM=y\nCONFIG_QCOM_CLK=y\nCONFIG_SERIAL_MSM=y\nCONFIG_SERIAL_MSM_CONSOLE=y\n" > .config
             fi
           fi
           
@@ -150,10 +150,10 @@ jobs:
             fi
           }
           
-          # Enable ACPI options
-          set_config "CONFIG_ACPI" "y"
-          set_config "CONFIG_ARM64_ACPI_PARKING_PROTOCOL" "y"
-          set_config "CONFIG_ACPI_TABLE_UPGRADE" "y"
+          # Disable ACPI options
+          set_config "CONFIG_ACPI" "n"
+          set_config "CONFIG_ARM64_ACPI_PARKING_PROTOCOL" "n"
+          set_config "CONFIG_ACPI_TABLE_UPGRADE" "n"
           
           # Enable EFI options
           set_config "CONFIG_EFI" "y"
@@ -165,17 +165,42 @@ jobs:
           
           # Enable device tree support
           set_config "CONFIG_OF" "y"
+          set_config "CONFIG_OF_FLATTREE" "y"
+          set_config "CONFIG_OF_EARLY_FLATTREE" "y"
+          
+          # Enable Qualcomm architecture support
+          set_config "CONFIG_ARCH_QCOM" "y"
+          set_config "CONFIG_MSM_GCC_8998" "y"
+          set_config "CONFIG_QCOM_SMEM" "y"
+          set_config "CONFIG_QCOM_SMD" "y"
+          set_config "CONFIG_QCOM_SCM" "y"
+          set_config "CONFIG_QCOM_CLK" "y"
+          
+          # Enable Qualcomm serial support
+          set_config "CONFIG_SERIAL_MSM" "y"
+          set_config "CONFIG_SERIAL_MSM_CONSOLE" "y"
           
           # If scripts/config exists, use it for verification
           if [ -f scripts/config ]; then
             echo "Using scripts/config for additional configuration..."
-            ./scripts/config --file .config --enable CONFIG_ACPI || true
-            ./scripts/config --file .config --enable CONFIG_ARM64_ACPI_PARKING_PROTOCOL || true
-            ./scripts/config --file .config --enable CONFIG_ACPI_TABLE_UPGRADE || true
+            ./scripts/config --file .config --disable CONFIG_ACPI || true
+            ./scripts/config --file .config --disable CONFIG_ARM64_ACPI_PARKING_PROTOCOL || true
+            ./scripts/config --file .config --disable CONFIG_ACPI_TABLE_UPGRADE || true
             ./scripts/config --file .config --enable CONFIG_EFI || true
             ./scripts/config --file .config --enable CONFIG_EFI_STUB || true
             ./scripts/config --file .config --enable CONFIG_EFI_MIXED || true
             ./scripts/config --file .config --enable CONFIG_DMI || true
+            ./scripts/config --file .config --enable CONFIG_OF || true
+            ./scripts/config --file .config --enable CONFIG_OF_FLATTREE || true
+            ./scripts/config --file .config --enable CONFIG_OF_EARLY_FLATTREE || true
+            ./scripts/config --file .config --enable CONFIG_ARCH_QCOM || true
+            ./scripts/config --file .config --enable CONFIG_MSM_GCC_8998 || true
+            ./scripts/config --file .config --enable CONFIG_QCOM_SMEM || true
+            ./scripts/config --file .config --enable CONFIG_QCOM_SMD || true
+            ./scripts/config --file .config --enable CONFIG_QCOM_SCM || true
+            ./scripts/config --file .config --enable CONFIG_QCOM_CLK || true
+            ./scripts/config --file .config --enable CONFIG_SERIAL_MSM || true
+            ./scripts/config --file .config --enable CONFIG_SERIAL_MSM_CONSOLE || true
           fi
           
           # Verify the configuration
@@ -188,6 +213,15 @@ jobs:
           echo ""
           echo "DMI settings:"
           grep -E "CONFIG_DMI=" .config || echo "Warning: DMI config not found"
+          echo ""
+          echo "Device Tree settings:"
+          grep -E "CONFIG_OF=|CONFIG_OF_FLATTREE=|CONFIG_OF_EARLY_FLATTREE=" .config || echo "Warning: Some Device Tree configs not found"
+          echo ""
+          echo "Qualcomm architecture settings:"
+          grep -E "CONFIG_ARCH_QCOM=|CONFIG_MSM_GCC_8998=|CONFIG_QCOM_SMEM=|CONFIG_QCOM_SMD=|CONFIG_QCOM_SCM=|CONFIG_QCOM_CLK=" .config || echo "Warning: Some Qualcomm configs not found"
+          echo ""
+          echo "Qualcomm serial settings:"
+          grep -E "CONFIG_SERIAL_MSM=|CONFIG_SERIAL_MSM_CONSOLE=" .config || echo "Warning: Some serial configs not found"
           echo ""
           echo "Architecture settings:"
           grep -E "CONFIG_ARM64=" .config || true
