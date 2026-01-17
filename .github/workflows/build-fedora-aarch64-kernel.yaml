@@ -459,6 +459,7 @@ jobs:
           IMAGE="$1"
           KERNEL_IMAGE="$2"
           KERNEL_RELEASE="$3"
+          KERNEL_SOURCE="$4"
           
           # Use kpartx directly - more reliable in containers
           echo "Using kpartx to map partitions..."
@@ -565,6 +566,16 @@ jobs:
             fi
           done
           
+          # Install kernel modules
+          if [ -n "$KERNEL_SOURCE" ] && [ -d "$KERNEL_SOURCE" ]; then
+            echo "Installing kernel modules..."
+            cd "$KERNEL_SOURCE"
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH=/mnt/fedora modules_install
+            cd - > /dev/null
+          else
+            echo "Warning: Kernel source directory not provided, skipping modules installation"
+          fi
+          
           # Unmount and cleanup
           umount /mnt/fedora
           kpartx -d "$IMAGE" || true
@@ -573,7 +584,7 @@ jobs:
           chmod +x mount_and_modify.sh
           
           # Run the modification script
-          ./mount_and_modify.sh ../fedora-raw-modified arch/arm64/boot/Image "$KERNEL_RELEASE"
+          ./mount_and_modify.sh ../fedora-raw-modified arch/arm64/boot/Image "$KERNEL_RELEASE" "$(pwd)"
 
       - name: Cleanup and package
         run: |
