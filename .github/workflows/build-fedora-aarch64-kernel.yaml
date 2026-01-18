@@ -255,16 +255,15 @@ jobs:
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS modules
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$JOBS dtbs
           
-          # Build specific DTB for sdm850-samsung-w737
-          echo "Building sdm850-samsung-w737.dtb..."
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb
-          
-          # Verify DTB was built
+          # Verify DTB was built (sdm850-samsung-w737.dtb is built as part of dtbs target)
+          echo "Checking for sdm850-samsung-w737.dtb..."
           if [ -f arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb ]; then
             echo "DTB built successfully: arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb"
             ls -lh arch/arm64/boot/dts/qcom/sdm850-samsung-w737.dtb
           else
             echo "WARNING: DTB file not found after build"
+            echo "Available Qualcomm DTBs:"
+            ls arch/arm64/boot/dts/qcom/*.dtb 2>/dev/null | head -20 || echo "No DTBs found in qcom directory"
           fi
 
       - name: Download Fedora raw image
