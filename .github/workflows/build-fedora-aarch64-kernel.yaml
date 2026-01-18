@@ -91,8 +91,8 @@ jobs:
             if [ -d kernel-source ]; then
               rm -rf kernel-source
             fi
-            # Use a recent stable kernel version
-            git clone --depth 1 --branch v6.1 https://github.com/torvalds/linux.git kernel-source || \
+            # Use a recent stable kernel version (v6.6+ includes sdm850-samsung-w737.dts)
+            git clone --depth 1 --branch v6.6 https://github.com/torvalds/linux.git kernel-source || \
             git clone --depth 1 https://github.com/torvalds/linux.git kernel-source
           fi
           
